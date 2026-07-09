@@ -1,0 +1,65 @@
+# Copy this file to terraform.tfvars and fill in the values for your account.
+# terraform.tfvars is gitignored — never commit it.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+
+# ── Required ──────────────────────────────────────────────────────────────────
+
+# ID of an existing VPC to deploy into. It must have an Internet Gateway
+# attached when create_subnets = true (the default).
+vpc_id = "vpc-0abc1234def567890"
+
+# ── Region / naming ───────────────────────────────────────────────────────────
+
+# aws_region = "ap-southeast-2"   # Sydney (default)
+# project    = "summit-demo"      # prefix for all resource names
+
+# ── Subnets ───────────────────────────────────────────────────────────────────
+# Default (create_subnets = true): Terraform creates two new public subnets in
+# your VPC. If the auto-computed CIDRs collide with existing subnets, bump
+# subnet_offset.
+#
+# create_subnets = true
+# subnet_offset  = 200
+
+# To use existing subnets instead, set create_subnets = false and supply IDs:
+# create_subnets    = false
+# public_subnet_ids = ["subnet-0aaa...", "subnet-0bbb..."]  # ALB: min 2, different AZs
+# ecs_subnet_ids    = ["subnet-0aaa...", "subnet-0bbb..."]  # Fargate tasks
+
+# ── Image tags / dashboard labels ─────────────────────────────────────────────
+
+# upstream_image_tag     = "latest"
+# chainguard_image_tag   = "latest"
+# upstream_image_label   = "python:3.13"
+# chainguard_image_label = "python:3.13"
+
+# ── ECS sizing ────────────────────────────────────────────────────────────────
+
+# app_cpu                     = 512    # 256 = 0.25 vCPU, 512 = 0.5 vCPU
+# app_memory                  = 1024   # MiB
+# ecs_task_desired_count      = 1
+# ecs_tasks_use_public_subnet = true   # false only with private subnets + NAT GW
+
+# ── App behaviour ─────────────────────────────────────────────────────────────
+
+# cache_ttl_seconds = 300   # how long the app caches Inspector findings
+
+# ── Inspector ─────────────────────────────────────────────────────────────────
+
+# Set false if Inspector v2 is already enabled in this account.
+# enable_inspector = true
+
+# ── Chainguard Nexus library index (optional) ─────────────────────────────────
+# Leave nexus_host empty to use standard PyPI. When set, the dashboard
+# provenance view marks all packages as Chainguard-verified.
+
+# nexus_host = ""
+# nexus_repo = "python-group"
+
+# ── Chainguard Libraries credentials ──────────────────────────────────────────
+# Credentials live in SSM Parameter Store, NOT in this file. Store them by
+# running scripts/store-cg-credentials.sh before the first terraform apply.
+# Defaults to /<project> when left empty.
+
+# cg_libraries_ssm_prefix = ""
