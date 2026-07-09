@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Container Security Showdown — AWS Summit Sydney</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0a0e1a;
+    --card-bg:   #111827;
+    --border:    #1f2937;
+    --text:      #e5e7eb;
+    --muted:     #6b7280;
+    --danger:    #ef4444;
+    --danger-dim:#7f1d1d;
+    --safe:      #22c55e;
+    --safe-dim:  #14532d;
+    --aws-orange:#ff9900;
+    --cg-purple: #7c3aed;
+    --cg-green:  #10b981;
+    --critical:  #ef4444;
+    --high:      #f97316;
+    --medium:    #eab308;
+    --low:       #3b82f6;
+    --info:      #6b7280;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); overflow-x:hidden; }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 28px;
+    background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%);
+    border-bottom:1px solid var(--cg-purple);
+    position:sticky; top:0; z-index:100;
+  }
+  .header-left { display:flex; align-items:center; gap:14px; }
+  .header-title { font-size:1.25rem; font-weight:700; letter-spacing:.5px; }
+  .header-title span { color:var(--cg-green); }
+  .header-right { display:flex; align-items:center; gap:16px; }
+  .badge {
+    padding:4px 12px; border-radius:999px; font-size:.75rem; font-weight:600; letter-spacing:.5px;
+    text-transform:uppercase;
+  }
+  .badge-aws { background:var(--aws-orange); color:#000; }
+  .badge-live { background:var(--safe); color:#000; animation:pulse-badge 2s infinite; }
+  @keyframes pulse-badge { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .last-updated { font-size:.75rem; color:var(--muted); }
+  .btn-refresh {
+    background:transparent; border:1px solid var(--cg-purple); color:var(--text);
+    padding:6px 14px; border-radius:6px; cursor:pointer; font-size:.8rem;
+    transition:all .2s;
+  }
+  .btn-refresh:hover { background:var(--cg-purple); }
+  .btn-refresh.spinning svg { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── Main grid ───────────────────────────────────────────── */
+  main { padding:20px 28px; display:grid; gap:20px; }
+
+  /* ── Hero comparison row ─────────────────────────────────── */
+  .hero { display:grid; grid-template-columns:1fr auto 1fr; gap:0; align-items:stretch; }
+
+  .image-card {
+    border-radius:12px; padding:28px;
+    display:flex; flex-direction:column; gap:18px;
+    position:relative; overflow:hidden;
+  }
+  .image-card.danger {
+    background:linear-gradient(160deg,#1a0505 0%,#1f0707 100%);
+    border:1px solid var(--danger-dim);
+  }
+  .image-card.safe {
+    background:linear-gradient(160deg,#022c22 0%,#064e3b 100%);
+    border:1px solid var(--safe-dim);
+  }
+  /* animated glow */
+  .image-card.danger::before {
+    content:''; position:absolute; top:-40%; left:-10%; width:120%; height:80%;
+    background:radial-gradient(ellipse,rgba(239,68,68,.08) 0%,transparent 70%);
+    pointer-events:none;
+  }
+  .image-card.safe::before {
+    content:''; position:absolute; top:-40%; left:-10%; width:120%; height:80%;
+    background:radial-gradient(ellipse,rgba(34,197,94,.08) 0%,transparent 70%);
+    pointer-events:none;
+  }
+
+  .card-label {
+    font-size:.7rem; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card-label.danger { color:var(--danger); }
+  .card-label.safe   { color:var(--safe); }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .dot.danger { background:var(--danger); box-shadow:0 0 8px var(--danger); animation:pulse-dot 1.5s infinite; }
+  .dot.safe   { background:var(--safe);   box-shadow:0 0 8px var(--safe); }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.7)} }
+
+  .card-image-name {
+    font-size:.85rem; color:var(--muted); font-family:monospace;
+    background:rgba(255,255,255,.04); padding:6px 10px; border-radius:6px;
+    word-break:break-all;
+  }
+
+  .cve-counter {
+    text-align:center; padding:10px 0;
+  }
+  .cve-number {
+    font-size:5.5rem; font-weight:900; line-height:1; letter-spacing:-4px;
+    transition:all .3s;
+  }
+  .cve-number.danger { color:var(--danger); text-shadow:0 0 40px rgba(239,68,68,.4); }
+  .cve-number.safe   { color:var(--safe);   text-shadow:0 0 40px rgba(34,197,94,.3); }
+  .cve-label { font-size:.9rem; color:var(--muted); margin-top:4px; letter-spacing:1px; }
+  .scanning-badge {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: .8rem;
+    font-weight: 600;
+    background: rgba(251,191,36,.12);
+    border: 1px solid rgba(251,191,36,.35);
+    color: #fbbf24;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; }
+    50%      { opacity:.5; }
+  }
+
+  .severity-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:8px;
+  }
+  .sev-item {
+    display:flex; justify-content:space-between; align-items:center;
+    background:rgba(255,255,255,.04); padding:8px 12px; border-radius:8px;
+    border-left:3px solid transparent;
+  }
+  .sev-item.critical { border-color:var(--critical); }
+  .sev-item.high     { border-color:var(--high); }
+  .sev-item.medium   { border-color:var(--medium); }
+  .sev-item.low      { border-color:var(--low); }
+  .sev-label { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+  .sev-count { font-size:1.2rem; font-weight:700; }
+  .sev-count.critical { color:var(--critical); }
+  .sev-count.high     { color:var(--high); }
+  .sev-count.medium   { color:var(--medium); }
+  .sev-count.low      { color:var(--low); }
+
+  /* QR + meta */
+  .card-footer { display:flex; gap:20px; align-items:flex-start; margin-top:auto; }
+  .qr-wrap { display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; }
+  .qr-wrap img { width:90px; height:90px; border-radius:8px; border:2px solid rgba(255,255,255,.1); }
+  .qr-label { font-size:.65rem; color:var(--muted); text-align:center; }
+  .image-meta { display:flex; flex-direction:column; gap:6px; flex:1; }
+  .meta-row { display:flex; justify-content:space-between; font-size:.78rem; }
+  .meta-key   { color:var(--muted); }
+  .meta-value { font-weight:600; font-family:monospace; }
+  .meta-value.danger { color:var(--danger); }
+  .meta-value.safe   { color:var(--safe); }
+
+  /* ── VS divider ──────────────────────────────────────────── */
+  .vs-divider {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:0 16px; gap:12px;
+  }
+  .vs-text {
+    font-size:1.4rem; font-weight:900; color:var(--aws-orange);
+    text-shadow:0 0 20px rgba(255,153,0,.5);
+  }
+  .vs-line { width:2px; flex:1; background:linear-gradient(to bottom,transparent,var(--border),transparent); }
+
+  /* ── Bottom row ──────────────────────────────────────────── */
+  .bottom-row { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+
+  /* ── Generic panel ───────────────────────────────────────── */
+  .panel {
+    background:var(--card-bg); border:1px solid var(--border);
+    border-radius:12px; padding:22px;
+  }
+  .panel-title {
+    font-size:.75rem; font-weight:700; letter-spacing:1.5px;
+    text-transform:uppercase; color:var(--muted); margin-bottom:14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .panel-title svg { opacity:.6; }
+
+  /* ── Severity bar chart ──────────────────────────────────── */
+  .chart-wrap { position:relative; height:180px; }
+
+  /* ── Image size comparison ───────────────────────────────── */
+  .size-bars { display:flex; flex-direction:column; gap:14px; }
+  .size-bar-row { display:flex; flex-direction:column; gap:6px; }
+  .size-bar-label { display:flex; justify-content:space-between; font-size:.82rem; }
+  .size-bar-name  { color:var(--text); }
+  .size-bar-value { font-weight:700; font-family:monospace; }
+  .size-bar-track { height:28px; background:rgba(255,255,255,.05); border-radius:6px; overflow:hidden; position:relative; }
+  .size-bar-fill  {
+    height:100%; border-radius:6px; display:flex; align-items:center; padding:0 10px;
+    font-size:.72rem; font-weight:700; color:#fff; min-width:30px;
+    transition:width 1.2s cubic-bezier(.4,0,.2,1);
+  }
+  .size-bar-fill.danger { background:linear-gradient(90deg,#7f1d1d,#ef4444); }
+  .size-bar-fill.safe   { background:linear-gradient(90deg,#14532d,#22c55e); }
+
+  /* ── CVE ticker ──────────────────────────────────────────── */
+  .cve-ticker-row { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .ticker-list {
+    display:flex; flex-direction:column; gap:6px;
+    max-height:220px; overflow-y:auto;
+  }
+  .ticker-list::-webkit-scrollbar { width:4px; }
+  .ticker-list::-webkit-scrollbar-track { background:transparent; }
+  .ticker-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .ticker-item {
+    display:flex; gap:8px; align-items:flex-start;
+    background:rgba(255,255,255,.03); border-radius:6px;
+    padding:7px 10px; font-size:.75rem; animation:fadeIn .4s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .tick-sev {
+    font-weight:700; font-size:.65rem; letter-spacing:.5px;
+    text-transform:uppercase; flex-shrink:0; min-width:58px;
+    padding:2px 6px; border-radius:4px; text-align:center;
+  }
+  .tick-sev.CRITICAL { background:rgba(239,68,68,.2);  color:var(--critical); }
+  .tick-sev.HIGH     { background:rgba(249,115,22,.2); color:var(--high); }
+  .tick-sev.MEDIUM   { background:rgba(234,179,8,.2);  color:var(--medium); }
+  .tick-sev.LOW      { background:rgba(59,130,246,.2); color:var(--low); }
+  .tick-id   { font-weight:700; font-family:monospace; color:var(--text); }
+  .tick-pkg  { color:var(--muted); font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tick-score { margin-left:auto; font-weight:700; flex-shrink:0; }
+
+  /* ── Library provenance ──────────────────────────────────────── */
+  .prov-summary {
+    display:flex; gap:12px; margin-bottom:10px; flex-wrap:wrap;
+  }
+  .prov-badge {
+    display:flex; align-items:center; gap:5px;
+    padding:4px 10px; border-radius:20px; font-size:.75rem; font-weight:600;
+  }
+  .prov-badge.verified   { background:rgba(34,197,94,.12);  border:1px solid rgba(34,197,94,.3);  color:#22c55e; }
+  .prov-badge.unverified { background:rgba(249,115,22,.12); border:1px solid rgba(249,115,22,.3); color:#f97316; }
+  .prov-badge.unknown    { background:rgba(156,163,175,.1); border:1px solid rgba(156,163,175,.2);color:#9ca3af; }
+  .prov-item {
+    display:flex; flex-direction:column; gap:3px;
+    background:rgba(255,255,255,.03); border-radius:6px;
+    padding:7px 10px; font-size:.75rem; animation:fadeIn .4s ease;
+    border-left:3px solid transparent;
+  }
+  .prov-item.verified   { border-left-color:var(--safe); }
+  .prov-item.unverified { border-left-color:var(--high); }
+  .prov-item.unknown    { border-left-color:var(--muted); }
+  .prov-top { display:flex; align-items:center; gap:8px; }
+  .prov-name    { font-weight:700; font-family:monospace; color:var(--text); }
+  .prov-ver     { color:var(--muted); font-family:monospace; font-size:.7rem; }
+  .prov-installer { margin-left:auto; font-size:.65rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:.5px;
+    padding:2px 6px; border-radius:4px; flex-shrink:0; }
+  .prov-installer.pip { background:rgba(59,130,246,.15); color:#60a5fa; }
+  .prov-installer.apk { background:rgba(34,197,94,.15);  color:#22c55e; }
+  .prov-meta { display:flex; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:.7rem; }
+  .prov-meta a { color:var(--cg-purple); text-decoration:none; }
+  .prov-meta a:hover { text-decoration:underline; }
+  .prov-status { font-size:.68rem; font-weight:600; }
+  .prov-status.ok  { color:var(--safe); }
+  .prov-status.warn{ color:var(--high); }
+  .prov-status.grey{ color:var(--muted); }
+
+  /* ── Attestation modal ───────────────────────────────────── */
+  #attest-modal-backdrop {
+    display:none; position:fixed; inset:0; z-index:500;
+    background:rgba(5,8,18,.78); backdrop-filter:blur(6px);
+    align-items:center; justify-content:center;
+  }
+  #attest-modal-backdrop.visible { display:flex; }
+  #attest-modal {
+    background:#111827; border:1px solid #374151;
+    border-radius:14px; width:min(820px, 94vw); max-height:88vh;
+    display:flex; flex-direction:column; box-shadow:0 25px 60px rgba(0,0,0,.7);
+    animation:modalIn .2s ease;
+  }
+  @keyframes modalIn { from{opacity:0;transform:scale(.96) translateY(12px)} to{opacity:1;transform:none} }
+  .modal-header {
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding:20px 24px 14px; border-bottom:1px solid #1f2937; flex-shrink:0;
+  }
+  .modal-pkg-name { font-size:1.15rem; font-weight:700; font-family:monospace; color:#e5e7eb; }
+  .modal-pkg-ver  { font-size:.8rem; color:#6b7280; margin-top:2px; font-family:monospace; }
+  .modal-mode-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 10px; border-radius:20px; font-size:.7rem; font-weight:600;
+    letter-spacing:.5px; text-transform:uppercase; margin-top:6px;
+  }
+  .modal-mode-badge.pypi { background:rgba(59,130,246,.15); border:1px solid rgba(59,130,246,.3); color:#60a5fa; }
+  .modal-mode-badge.cg   { background:rgba(34,197,94,.12);  border:1px solid rgba(34,197,94,.3);  color:#22c55e; }
+  .modal-close {
+    background:transparent; border:none; color:#6b7280; cursor:pointer;
+    padding:4px; border-radius:6px; transition:color .15s;
+    flex-shrink:0; margin-left:12px;
+  }
+  .modal-close:hover { color:#e5e7eb; background:rgba(255,255,255,.06); }
+  .modal-tabs {
+    display:flex; gap:0; border-bottom:1px solid #1f2937; padding:0 24px; flex-shrink:0;
+  }
+  .modal-tab {
+    padding:9px 18px; font-size:.78rem; font-weight:600; cursor:pointer;
+    border-bottom:2px solid transparent; color:#6b7280; transition:all .15s;
+    background:none; border-top:none; border-left:none; border-right:none;
+  }
+  .modal-tab:hover { color:#e5e7eb; }
+  .modal-tab.active { color:#7c3aed; border-bottom-color:#7c3aed; }
+  .modal-body {
+    flex:1; overflow-y:auto; padding:20px 24px;
+  }
+  .modal-body::-webkit-scrollbar { width:5px; }
+  .modal-body::-webkit-scrollbar-track { background:transparent; }
+  .modal-body::-webkit-scrollbar-thumb { background:#374151; border-radius:3px; }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+  .info-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;
+  }
+  .info-cell {
+    background:rgba(255,255,255,.03); border:1px solid #1f2937;
+    border-radius:8px; padding:10px 14px;
+  }
+  .info-cell-label { font-size:.65rem; font-weight:600; letter-spacing:1px;
+    text-transform:uppercase; color:#6b7280; margin-bottom:4px; }
+  .info-cell-value { font-size:.82rem; color:#e5e7eb; word-break:break-word; }
+  .info-cell-value a { color:#7c3aed; text-decoration:none; }
+  .info-cell-value a:hover { text-decoration:underline; }
+  .attest-banner {
+    display:flex; align-items:center; gap:10px;
+    padding:12px 16px; border-radius:8px; margin-bottom:16px; font-size:.82rem;
+  }
+  .attest-banner.ok   { background:rgba(34,197,94,.08);  border:1px solid rgba(34,197,94,.25);  color:#22c55e; }
+  .attest-banner.warn { background:rgba(249,115,22,.08); border:1px solid rgba(249,115,22,.25); color:#f97316; }
+  .attest-banner.cg   { background:rgba(124,58,237,.08); border:1px solid rgba(124,58,237,.25); color:#a78bfa; }
+  .attest-banner-icon { font-size:1.2rem; flex-shrink:0; }
+  .json-wrap {
+    background:#0d1117; border:1px solid #1f2937; border-radius:8px;
+    overflow:auto; padding:14px 16px; font-size:.72rem; font-family:monospace;
+    line-height:1.6; max-height:380px; white-space:pre; color:#e5e7eb;
+  }
+  .json-wrap .jk { color:#79c0ff; }  /* key */
+  .json-wrap .js { color:#a5d6a7; }  /* string */
+  .json-wrap .jn { color:#ff9800; }  /* number */
+  .json-wrap .jb { color:#ce93d8; }  /* bool/null */
+  .file-list { display:flex; flex-direction:column; gap:6px; }
+  .file-row {
+    display:flex; align-items:center; gap:10px;
+    background:rgba(255,255,255,.03); border:1px solid #1f2937;
+    border-radius:6px; padding:8px 12px; font-size:.75rem;
+  }
+  .file-name { font-family:monospace; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file-attest-ok   { color:#22c55e; font-weight:600; font-size:.68rem; flex-shrink:0; }
+  .file-attest-none { color:#6b7280; font-size:.68rem; flex-shrink:0; }
+  .modal-loading { text-align:center; padding:40px; color:#6b7280; }
+  .modal-spinner {
+    width:32px; height:32px; border:3px solid #1f2937;
+    border-top-color:#7c3aed; border-radius:50%; animation:spin 1s linear infinite;
+    margin:0 auto 12px;
+  }
+
+  /* ── Status bar ──────────────────────────────────────────── */
+  .status-bar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 28px; font-size:.72rem; color:var(--muted);
+    border-top:1px solid var(--border); margin-top:4px;
+  }
+  .status-bar a { color:var(--cg-green); text-decoration:none; }
+
+  /* ── Scanning overlay ────────────────────────────────────── */
+  #scan-overlay {
+    display:none; position:fixed; inset:0; z-index:999;
+    background:rgba(10,14,26,.85); backdrop-filter:blur(4px);
+    flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  }
+  #scan-overlay.visible { display:flex; }
+  .scan-spinner {
+    width:56px; height:56px; border:4px solid var(--border);
+    border-top-color:var(--cg-purple); border-radius:50%; animation:spin 1s linear infinite;
+  }
+  .scan-text { color:var(--text); font-size:1rem; }
+
+  /* ── Error banner ────────────────────────────────────────── */
+  #error-banner {
+    display:none; background:rgba(239,68,68,.1); border:1px solid var(--danger);
+    border-radius:8px; padding:10px 16px; font-size:.8rem; color:var(--danger);
+    margin-bottom:8px;
+  }
+
+  /* ── Responsive ──────────────────────────────────────────── */
+  @media (max-width: 1100px) {
+    .hero { grid-template-columns:1fr 1fr; }
+    .vs-divider { display:none; }
+    .bottom-row, .cve-ticker-row { grid-template-columns:1fr; }
+    .cve-number { font-size:4rem; }
+  }
+  @media (max-width: 700px) {
+    .hero { grid-template-columns:1fr; }
+    main { padding:12px; }
+    header { padding:10px 14px; flex-wrap:wrap; gap:8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Scanning overlay ─────────────────────────────────────────────── -->
+<div id="scan-overlay">
+  <div class="scan-spinner"></div>
+  <div class="scan-text">Refreshing Inspector findings…</div>
+</div>
+
+<!-- ── Header ───────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-left">
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="15" stroke="#7c3aed" stroke-width="2"/>
+      <path d="M16 7l7 4v8l-7 4-7-4v-8z" fill="none" stroke="#10b981" stroke-width="1.5"/>
+      <path d="M16 11l4 2.3v4.6L16 20l-4-2.1V13.3z" fill="#10b981" opacity=".4"/>
+    </svg>
+    <div class="header-title">Container Security <span>Showdown</span></div>
+  </div>
+  <div class="header-right">
+    <span class="badge badge-aws">AWS Summit Sydney</span>
+    <span class="badge badge-live">● Live</span>
+    <span class="last-updated" id="last-updated">Loading…</span>
+    <button class="btn-refresh" id="btn-refresh" onclick="triggerRefresh()">
+      <svg id="refresh-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+</header>
+
+<main>
+  <div id="error-banner"></div>
+
+  <!-- ── Hero ─────────────────────────────────────────────────────── -->
+  <div class="hero">
+
+    <!-- Upstream card -->
+    <div class="image-card danger" id="upstream-card">
+      <div class="card-label danger"><div class="dot danger"></div>⚠ Upstream Image</div>
+      <div class="card-image-name" id="upstream-img-name">python:3.13</div>
+
+      <div class="cve-counter">
+        <div class="cve-number danger" id="upstream-total">—</div>
+        <div class="cve-label">VULNERABILITIES FOUND</div>
+      </div>
+
+      <div class="severity-grid">
+        <div class="sev-item critical">
+          <span class="sev-label" style="color:var(--critical)">Critical</span>
+          <span class="sev-count critical" id="up-critical">—</span>
+        </div>
+        <div class="sev-item high">
+          <span class="sev-label" style="color:var(--high)">High</span>
+          <span class="sev-count high" id="up-high">—</span>
+        </div>
+        <div class="sev-item medium">
+          <span class="sev-label" style="color:var(--medium)">Medium</span>
+          <span class="sev-count medium" id="up-medium">—</span>
+        </div>
+        <div class="sev-item low">
+          <span class="sev-label" style="color:var(--low)">Low</span>
+          <span class="sev-count low" id="up-low">—</span>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div class="qr-wrap">
+          <img src="/qr/upstream.png" alt="QR Code" loading="lazy"/>
+          <div class="qr-label">📱 Scan for full<br>CVE report</div>
+        </div>
+        <div class="image-meta">
+          <div class="meta-row">
+            <span class="meta-key">Image size</span>
+            <span class="meta-value danger" id="up-size">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Last scanned</span>
+            <span class="meta-value" id="up-updated">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Digest</span>
+            <span class="meta-value" id="up-digest" style="font-size:.7rem">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VS divider -->
+    <div class="vs-divider">
+      <div class="vs-line"></div>
+      <div class="vs-text">VS</div>
+      <div class="vs-line"></div>
+    </div>
+
+    <!-- Chainguard card -->
+    <div class="image-card safe" id="cg-card">
+      <div class="card-label safe"><div class="dot safe"></div>✓ Chainguard Image</div>
+      <div class="card-image-name" id="cg-img-name">python:3.13</div>
+
+      <div class="cve-counter">
+        <div class="cve-number safe" id="cg-total">—</div>
+        <div class="cve-label">VULNERABILITIES FOUND</div>
+      </div>
+
+      <div class="severity-grid">
+        <div class="sev-item critical">
+          <span class="sev-label" style="color:var(--critical)">Critical</span>
+          <span class="sev-count critical" id="cg-critical">—</span>
+        </div>
+        <div class="sev-item high">
+          <span class="sev-label" style="color:var(--high)">High</span>
+          <span class="sev-count high" id="cg-high">—</span>
+        </div>
+        <div class="sev-item medium">
+          <span class="sev-label" style="color:var(--medium)">Medium</span>
+          <span class="sev-count medium" id="cg-medium">—</span>
+        </div>
+        <div class="sev-item low">
+          <span class="sev-label" style="color:var(--low)">Low</span>
+          <span class="sev-count low" id="cg-low">—</span>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div class="qr-wrap">
+          <img src="/qr/chainguard.png" alt="QR Code" loading="lazy"/>
+          <div class="qr-label">📱 Scan for full<br>CVE report</div>
+        </div>
+        <div class="image-meta">
+          <div class="meta-row">
+            <span class="meta-key">Image size</span>
+            <span class="meta-value safe" id="cg-size">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Last scanned</span>
+            <span class="meta-value" id="cg-updated">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Digest</span>
+            <span class="meta-value" id="cg-digest" style="font-size:.7rem">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Bottom row ───────────────────────────────────────────────── -->
+  <div class="bottom-row">
+
+    <!-- Severity chart -->
+    <div class="panel">
+      <div class="panel-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
+        CVE Severity Distribution
+      </div>
+      <div class="chart-wrap">
+        <canvas id="sevChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Image size -->
+    <div class="panel">
+      <div class="panel-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        Image Size Comparison
+      </div>
+      <div class="size-bars">
+        <div class="size-bar-row">
+          <div class="size-bar-label">
+            <span class="size-bar-name">Upstream (python:3.13)</span>
+            <span class="size-bar-value" id="size-up-label">— MB</span>
+          </div>
+          <div class="size-bar-track">
+            <div class="size-bar-fill danger" id="size-up-bar" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="size-bar-row">
+          <div class="size-bar-label">
+            <span class="size-bar-name">Chainguard (python:3.13)</span>
+            <span class="size-bar-value" id="size-cg-label">— MB</span>
+          </div>
+          <div class="size-bar-track">
+            <div class="size-bar-fill safe" id="size-cg-bar" style="width:0%"></div>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:.8rem;color:var(--muted);line-height:1.5">
+          Chainguard images are distroless and ship only what the application needs — dramatically reducing your attack surface, image pull time, and storage costs.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CVE ticker ────────────────────────────────────────────────── -->
+  <div class="cve-ticker-row">
+    <div class="panel">
+      <div class="panel-title" style="color:var(--danger)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Top CVEs — Upstream Image
+      </div>
+      <div class="ticker-list" id="upstream-cve-list">
+        <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title" style="color:var(--safe)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        CVE Status — Chainguard Image
+      </div>
+      <div class="ticker-list" id="cg-cve-list">
+        <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Library provenance ─────────────────────────────────────────── -->
+  <div class="cve-ticker-row" id="provenance-section">
+    <div class="panel">
+      <div class="panel-title" style="color:var(--danger)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Library Provenance — Upstream (pip / PyPI)
+      </div>
+      <div class="prov-summary" id="up-prov-summary"></div>
+      <div class="ticker-list" id="up-prov-list">
+        <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title" style="color:var(--safe)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Library Provenance — Chainguard
+      </div>
+      <div class="prov-summary" id="cg-prov-summary"></div>
+      <div class="ticker-list" id="cg-prov-list">
+        <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── Attestation detail modal ─────────────────────────────────────────── -->
+<div id="attest-modal-backdrop" onclick="if(event.target===this)closeAttestModal()">
+  <div id="attest-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <div>
+        <div class="modal-pkg-name" id="modal-pkg-name">—</div>
+        <div class="modal-pkg-ver"  id="modal-pkg-ver">—</div>
+        <div class="modal-mode-badge pypi" id="modal-mode-badge">PyPI</div>
+      </div>
+      <button class="modal-close" onclick="closeAttestModal()" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="overview"  onclick="switchTab('overview')">Overview</button>
+      <button class="modal-tab"        data-tab="attestation" onclick="switchTab('attestation')">Attestation</button>
+      <button class="modal-tab"        data-tab="files"     onclick="switchTab('files')">Release Files</button>
+      <button class="modal-tab"        data-tab="raw"       onclick="switchTab('raw')">Raw JSON</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-loading" class="modal-loading">
+        <div class="modal-spinner"></div>
+        Fetching attestation data…
+      </div>
+      <div id="modal-content" style="display:none">
+
+        <!-- Overview tab -->
+        <div class="tab-panel active" id="tab-overview">
+          <div class="info-grid" id="modal-info-grid"></div>
+        </div>
+
+        <!-- Attestation tab -->
+        <div class="tab-panel" id="tab-attestation">
+          <div id="modal-attest-body"></div>
+        </div>
+
+        <!-- Files tab -->
+        <div class="tab-panel" id="tab-files">
+          <div class="file-list" id="modal-file-list"></div>
+        </div>
+
+        <!-- Raw JSON tab -->
+        <div class="tab-panel" id="tab-raw">
+          <div class="json-wrap" id="modal-raw-json"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <span>Powered by AWS Inspector v2 · Chainguard · AWS ECS Fargate</span>
+  <span>Data refreshes every 5 min · <a href="/api/findings" target="_blank">Raw API</a></span>
+</div>
+
+<script>
+let sevChart = null;
+let lastData = null;
+
+// ── animated counter ────────────────────────────────────────────────────────
+function animateCounter(el, start, end, duration = 1200) {
+  const startTime = performance.now();
+  const range = end - start;
+  function step(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const ease = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(start + range * ease).toLocaleString();
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ── severity chart ──────────────────────────────────────────────────────────
+function buildChart(upSev, cgSev) {
+  const ctx = document.getElementById('sevChart').getContext('2d');
+  const labels = ['Critical', 'High', 'Medium', 'Low'];
+  const colors = ['#ef4444','#f97316','#eab308','#3b82f6'];
+
+  if (sevChart) { sevChart.destroy(); }
+
+  sevChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Upstream',
+          data: [upSev.CRITICAL, upSev.HIGH, upSev.MEDIUM, upSev.LOW],
+          backgroundColor: colors.map(c => c + '99'),
+          borderColor: colors,
+          borderWidth: 2,
+          borderRadius: 4,
+        },
+        {
+          label: 'Chainguard',
+          data: [cgSev.CRITICAL, cgSev.HIGH, cgSev.MEDIUM, cgSev.LOW],
+          backgroundColor: ['#22c55e44','#22c55e44','#22c55e44','#22c55e44'],
+          borderColor: '#22c55e',
+          borderWidth: 2,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#e5e7eb', font: { size: 11 } } },
+        tooltip: { backgroundColor: '#1f2937', titleColor: '#e5e7eb', bodyColor: '#9ca3af' },
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af' }, grid: { color: '#1f2937' } },
+        y: { ticks: { color: '#9ca3af' }, grid: { color: '#1f2937' }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+// ── size bars ───────────────────────────────────────────────────────────────
+function updateSizeBars(upSize, cgSize) {
+  const maxMb = Math.max(upSize, cgSize, 100);
+  document.getElementById('size-up-label').textContent = upSize ? upSize + ' MB' : 'N/A';
+  document.getElementById('size-cg-label').textContent = cgSize ? cgSize + ' MB' : 'N/A';
+  setTimeout(() => {
+    document.getElementById('size-up-bar').style.width = upSize ? Math.min(100, upSize / maxMb * 100) + '%' : '0%';
+    document.getElementById('size-cg-bar').style.width = cgSize ? Math.min(100, cgSize / maxMb * 100) + '%' : '0%';
+  }, 200);
+}
+
+// ── CVE ticker ──────────────────────────────────────────────────────────────
+function renderTicker(containerId, cveList, emptyMsg) {
+  const el = document.getElementById(containerId);
+  if (!cveList || cveList.length === 0) {
+    el.innerHTML = `<div style="color:var(--safe);font-size:.85rem;text-align:center;padding:24px">
+      <div style="font-size:2rem;margin-bottom:8px">🛡️</div>
+      ${emptyMsg}
+    </div>`;
+    return;
+  }
+  el.innerHTML = cveList.slice(0, 30).map(c => `
+    <div class="ticker-item">
+      <span class="tick-sev ${c.severity}">${c.severity}</span>
+      <span class="tick-id">${c.id}</span>
+      <span class="tick-pkg">${(c.packages || []).join(', ') || '—'}</span>
+      <span class="tick-score" style="color:${scoreColor(c.score)}">${c.score}</span>
+    </div>
+  `).join('');
+}
+
+function scoreColor(s) {
+  if (s >= 9) return 'var(--critical)';
+  if (s >= 7) return 'var(--high)';
+  if (s >= 4) return 'var(--medium)';
+  return 'var(--low)';
+}
+
+// ── Main data update ────────────────────────────────────────────────────────
+function applyData(data) {
+  lastData = data;
+  const up = data.upstream;
+  const cg = data.chainguard;
+
+  // Image names
+  document.getElementById('upstream-img-name').textContent = up.label || (up.repo + ':' + up.tag);
+  document.getElementById('cg-img-name').textContent       = cg.label || (cg.repo + ':' + cg.tag);
+
+  // ── Scanning state helper ─────────────────────────────────────────────────
+  function applyScanning(prefix, isScanning) {
+    const card = document.getElementById(prefix === 'up' ? 'upstream-card' : 'cg-card');
+    const totalEl = document.getElementById(prefix === 'up' ? 'upstream-total' : 'cg-total');
+    let badge = card.querySelector('.scanning-badge');
+    if (isScanning) {
+      totalEl.textContent = '…';
+      ['critical','high','medium','low'].forEach(s => {
+        const el = document.getElementById(`${prefix}-${s}`);
+        if (el) el.textContent = '…';
+      });
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'scanning-badge';
+        badge.innerHTML = '⏳ Inspector scanning… results in ~5–15 min';
+        card.querySelector('.cve-label')?.after(badge);
+      }
+    } else {
+      if (badge) badge.remove();
+    }
+  }
+
+  // ── Big counters ──────────────────────────────────────────────────────────
+  const upScanning = up.findings.scanning;
+  const cgScanning = cg.findings.scanning;
+
+  applyScanning('up', upScanning);
+  applyScanning('cg', cgScanning);
+
+  if (!upScanning) animateCounter(document.getElementById('upstream-total'), 0, up.findings.total);
+  if (!cgScanning) animateCounter(document.getElementById('cg-total'), 0, cg.findings.total);
+
+  // Severity cells
+  const upSev = up.findings.severity_counts;
+  const cgSev = cg.findings.severity_counts;
+  if (!upScanning) {
+    ['critical','high','medium','low'].forEach(s => {
+      animateCounter(document.getElementById(`up-${s}`), 0, upSev[s.toUpperCase()] || 0);
+    });
+  }
+  if (!cgScanning) {
+    ['critical','high','medium','low'].forEach(s => {
+      animateCounter(document.getElementById(`cg-${s}`), 0, cgSev[s.toUpperCase()] || 0);
+    });
+  }
+
+  // Chart
+  buildChart(upSev, cgSev);
+
+  // Meta
+  document.getElementById('up-updated').textContent  = upScanning ? 'Scanning…' : (up.findings.last_updated || '—');
+  document.getElementById('cg-updated').textContent  = cgScanning ? 'Scanning…' : (cg.findings.last_updated || '—');
+  document.getElementById('up-digest').textContent   = up.image_info?.digest || '—';
+  document.getElementById('cg-digest').textContent   = cg.image_info?.digest || '—';
+
+  // Size
+  const upMb = up.image_info?.size_mb || 0;
+  const cgMb = cg.image_info?.size_mb || 0;
+  document.getElementById('up-size').textContent = upMb ? upMb + ' MB' : 'N/A';
+  document.getElementById('cg-size').textContent = cgMb ? cgMb + ' MB' : 'N/A';
+  updateSizeBars(upMb, cgMb);
+
+  // CVE tickers
+  renderTicker('upstream-cve-list', up.findings.cve_list,
+    upScanning ? '⏳ Inspector scanning this image…' : 'No CVEs found');
+  renderTicker('cg-cve-list', cg.findings.cve_list,
+    cgScanning ? '⏳ Inspector scanning this image…' : 'No CVEs found — you\'re safe! 🎉');
+
+  // Auto-refresh while either image is still scanning (every 30 s)
+  if (upScanning || cgScanning) {
+    setTimeout(() => loadData('/api/refresh'), 30000);
+  }
+
+  // Last updated header
+  const d = new Date(data.fetched_at);
+  document.getElementById('last-updated').textContent = 'Updated ' + d.toLocaleTimeString();
+
+  // Error banner
+  const errBanner = document.getElementById('error-banner');
+  const err = up.findings.error || cg.findings.error;
+  if (err) {
+    errBanner.textContent = '⚠ ' + err;
+    errBanner.style.display = 'block';
+  } else {
+    errBanner.style.display = 'none';
+  }
+}
+
+// ── Fetch ───────────────────────────────────────────────────────────────────
+async function loadData(endpoint = '/api/findings') {
+  try {
+    const resp = await fetch(endpoint);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    applyData(data);
+  } catch (e) {
+    document.getElementById('last-updated').textContent = 'Fetch error — retrying…';
+    console.error(e);
+  }
+}
+
+async function triggerRefresh() {
+  const overlay = document.getElementById('scan-overlay');
+  const btn = document.getElementById('btn-refresh');
+  overlay.classList.add('visible');
+  btn.classList.add('spinning');
+  try {
+    await loadData('/api/refresh');
+  } finally {
+    overlay.classList.remove('visible');
+    btn.classList.remove('spinning');
+  }
+}
+
+// ── Attestation modal ────────────────────────────────────────────────────────
+let _currentRawData = null;
+
+function switchTab(name) {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+function closeAttestModal() {
+  document.getElementById('attest-modal-backdrop').classList.remove('visible');
+  document.body.style.overflow = '';
+}
+
+function syntaxHighlight(obj) {
+  const str = JSON.stringify(obj, null, 2);
+  return str.replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+\.?\d*([eE][+\-]?\d+)?)/g,
+    match => {
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) return `<span class="jk">${match}</span>`;
+        return `<span class="js">${match}</span>`;
+      }
+      if (/true|false|null/.test(match)) return `<span class="jb">${match}</span>`;
+      return `<span class="jn">${match}</span>`;
+    }
+  );
+}
+
+async function openAttestModal(name, version, card) {
+  // Show modal, reset to Overview tab, show spinner
+  document.getElementById('attest-modal-backdrop').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('modal-pkg-name').textContent = name;
+  document.getElementById('modal-pkg-ver').textContent  = version;
+  document.getElementById('modal-loading').style.display = 'block';
+  document.getElementById('modal-content').style.display = 'none';
+  switchTab('overview');
+
+  let data;
+  try {
+    const cardParam = card === 'upstream' ? 'upstream' : 'chainguard';
+    const resp = await fetch(`/api/provenance/detail/${encodeURIComponent(name)}/${encodeURIComponent(version)}?card=${cardParam}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    data = await resp.json();
+  } catch (e) {
+    document.getElementById('modal-loading').innerHTML =
+      `<div style="color:var(--danger);padding:40px;text-align:center">Failed to load: ${e.message}</div>`;
+    return;
+  }
+
+  _currentRawData = data;
+
+  // Mode badge
+  const isCG = data.mode === 'chainguard_libraries';
+  const badge = document.getElementById('modal-mode-badge');
+  badge.textContent = isCG ? '🔒 Chainguard Libraries' : '📦 PyPI';
+  badge.className   = 'modal-mode-badge ' + (isCG ? 'cg' : 'pypi');
+
+  // ── Overview tab ───────────────────────────────────────────────────────────
+  const info = data.pypi?.info || {};
+  const cells = [
+    ['Author / Maintainer', info.author || info.maintainer || '—'],
+    ['License',  info.license || '—'],
+    ['Home page', info.home_page ? `<a href="${info.home_page}" target="_blank">${info.home_page}</a>` : '—'],
+    ['PyPI URL',  data.pypi?.metadata_url ? `<a href="https://pypi.org/project/${name}/${version}/" target="_blank">pypi.org/project/${name}/${version}/</a>` : '—'],
+    ['Requires Python', info.requires_python || '—'],
+    ['Summary', info.summary || '—'],
+  ];
+
+  if (isCG) {
+    cells.unshift(
+      ['Publisher', 'Chainguard'],
+      ['Build system', 'Built from source — SLSA Level 3'],
+      ['Sigstore', '✓ Keyless OIDC signing'],
+      ['SBOM', '✓ PEP 770 SPDX embedded in wheel'],
+    );
+  }
+
+  document.getElementById('modal-info-grid').innerHTML = cells.map(([label, val]) => `
+    <div class="info-cell">
+      <div class="info-cell-label">${label}</div>
+      <div class="info-cell-value">${val}</div>
+    </div>`).join('');
+
+  // ── Attestation tab ────────────────────────────────────────────────────────
+  const attestEl = document.getElementById('modal-attest-body');
+  const pep740 = data.pypi?.pep740_attestations || [];
+
+  if (isCG) {
+    const cgData = data.chainguard_libraries || {};
+    const results = cgData.provenance_results || [];
+
+    // Decode the SLSA statement from a Chainguard attestation bundle and
+    // extract the source git commit + build metadata
+    function decodeStatement(bundle) {
+      try {
+        const attestations = bundle?.attestation_bundles?.[0]?.attestations;
+        if (!attestations?.length) return null;
+        const raw = attestations[0]?.envelope?.statement;
+        if (!raw) return null;
+        return JSON.parse(atob(raw));
+      } catch { return null; }
+    }
+
+    function provenanceSummaryCard(stmt, publisher) {
+      if (!stmt) return '';
+      const deps   = stmt?.predicate?.buildDefinition?.resolvedDependencies || [];
+      const meta   = stmt?.predicate?.runDetails?.metadata || {};
+      const builder = stmt?.predicate?.runDetails?.builder?.id || '';
+
+      // Source repo + commit
+      const srcDep = deps.find(d => d.uri?.startsWith('git+') && d.digest?.gitCommit);
+      const gitCommit = srcDep?.digest?.gitCommit || '';
+      const repoUri   = srcDep?.uri?.replace(/^git\+/, '') || '';
+      const commitUrl = gitCommit && repoUri
+        ? `${repoUri}/commit/${gitCommit}`
+        : '';
+
+      // Build timestamp
+      const builtAt = meta.startedOn
+        ? new Date(meta.startedOn).toUTCString()
+        : '';
+
+      // Chainguard builder workflow commit (from builder.id after @)
+      const builderCommit = builder.includes('@') ? builder.split('@').pop() : '';
+      const builderRepo   = builder.match(/github\.com\/([^/]+\/[^/]+)\//)?.[1] || '';
+      const builderUrl    = builderCommit && builderRepo
+        ? `https://github.com/${builderRepo}/commit/${builderCommit}`
+        : '';
+
+      // Publisher identity
+      const pub = publisher || {};
+
+      const rows = [
+        gitCommit && `
+          <div class="info-cell" style="grid-column:1/-1">
+            <div class="info-cell-label">🔗 Source Git Commit (what was built)</div>
+            <div class="info-cell-value" style="font-family:monospace">
+              ${repoUri
+                ? `<a href="${repoUri}" target="_blank">${repoUri.replace('https://github.com/','')}</a>&nbsp;`
+                : ''}
+              <span style="color:var(--safe)" title="Copy commit hash">${gitCommit}</span>
+              <span style="color:var(--muted);font-size:.65rem;font-family:sans-serif;margin-left:6px">
+                (as referenced in SLSA provenance — link to specific commit may vary by repo)
+              </span>
+            </div>
+          </div>`,
+        builtAt && `
+          <div class="info-cell">
+            <div class="info-cell-label">🕐 Build Time</div>
+            <div class="info-cell-value">${builtAt}</div>
+          </div>`,
+        builderCommit && `
+          <div class="info-cell">
+            <div class="info-cell-label">🔨 Builder Workflow Commit</div>
+            <div class="info-cell-value" style="font-family:monospace">
+              ${builderUrl
+                ? `<a href="${builderUrl}" target="_blank">${builderCommit.slice(0,12)}…</a>`
+                : builderCommit.slice(0,12) + '…'}
+            </div>
+          </div>`,
+        pub.repository && `
+          <div class="info-cell">
+            <div class="info-cell-label">📦 Publisher</div>
+            <div class="info-cell-value">
+              <a href="https://github.com/${pub.repository}" target="_blank">${pub.repository}</a>
+              &nbsp;·&nbsp;${pub.workflow || ''}
+            </div>
+          </div>`,
+      ].filter(Boolean).join('');
+
+      return rows
+        ? `<div class="info-grid" style="margin:10px 0">${rows}</div>`
+        : '';
+    }
+
+    // Build a block for each wheel file's provenance response
+    function provenanceBlock(entry) {
+      const d = entry.data || {};
+      if (d._auth_required) {
+        return `<div class="attest-banner ok" style="margin:6px 0 10px">
+          <span class="attest-banner-icon">✅</span>
+          <div><strong>Endpoint confirmed (requires auth)</strong> — package is indexed in Chainguard integrity database</div>
+        </div>`;
+      }
+      if (d._fetch_error || d.fetch_error) {
+        const msg = d._fetch_error || d.fetch_error;
+        return `<div class="attest-banner warn" style="margin:6px 0 10px">
+          <span class="attest-banner-icon">⚠️</span>
+          <div>${msg}</div>
+        </div>`;
+      }
+
+      // Decode SLSA statement and extract provenance metadata
+      const stmt      = decodeStatement(d);
+      const publisher = d.attestation_bundles?.[0]?.publisher;
+      const isCGPub   = publisher?.environment === 'chainguard';
+
+      const publisherBanner = isCGPub
+        ? `<div class="attest-banner ok" style="margin:6px 0 8px">
+            <span class="attest-banner-icon">✅</span>
+            <div>
+              <strong>publisher.environment: "chainguard"</strong> — built and signed by Chainguard<br>
+              <span style="font-size:.72rem;opacity:.8">Identity: ${publisher.identity || ''} · Issuer: ${publisher.issuer || ''}</span>
+            </div>
+           </div>`
+        : '';
+
+      const summaryCard = provenanceSummaryCard(stmt, publisher);
+
+      return publisherBanner + summaryCard +
+        `<details style="margin-top:10px">
+           <summary style="cursor:pointer;font-size:.75rem;color:var(--muted);user-select:none">▶ Raw attestation JSON</summary>
+           <div class="json-wrap" style="margin-top:8px">${syntaxHighlight(d)}</div>
+         </details>`;
+    }
+
+    const blocksHtml = results.length === 0
+      ? `<div class="attest-banner warn"><span class="attest-banner-icon">⚠️</span><div>No wheel files found for this package version</div></div>`
+      : results.map(entry => `
+          <div style="margin-bottom:18px">
+            <div style="font-size:.73rem;color:var(--muted);margin-bottom:4px;font-family:monospace">
+              📦 ${entry.filename}
+              <a href="${entry.provenance_url}" target="_blank" style="color:var(--cg-purple);margin-left:8px;font-size:.68rem">↗ raw url</a>
+            </div>
+            ${provenanceBlock(entry)}
+          </div>`).join('');
+
+    attestEl.innerHTML = `
+      <div class="attest-banner cg">
+        <span class="attest-banner-icon">🔒</span>
+        <div>
+          <strong>Chainguard Libraries — SLSA Level 3 (PEP 740)</strong><br>
+          ${cgData.note || ''}
+        </div>
+      </div>
+      <div style="margin:14px 0 4px">${blocksHtml}</div>`;
+  } else if (pep740.length > 0) {
+    attestEl.innerHTML = `
+      <div class="attest-banner ok">
+        <span class="attest-banner-icon">✅</span>
+        <div><strong>PEP 740 attestations found (${pep740.length} file${pep740.length > 1 ? 's' : ''})</strong><br>
+        Published via GitHub Actions trusted publisher — verifiable with <code>pip install pypi-attestations</code></div>
+      </div>` +
+      pep740.map(b => `
+        <div style="margin-bottom:14px">
+          <div style="font-size:.75rem;color:var(--muted);margin-bottom:6px;font-family:monospace">${b.filename}</div>
+          <div class="json-wrap">${syntaxHighlight(b.bundle)}</div>
+        </div>`).join('');
+  } else {
+    attestEl.innerHTML = `
+      <div class="attest-banner warn">
+        <span class="attest-banner-icon">⚠️</span>
+        <div><strong>No PEP 740 attestations found</strong><br>
+        This package was published to PyPI without a verifiable provenance attestation. The source and build environment cannot be independently verified.</div>
+      </div>
+      <div style="font-size:.78rem;color:var(--muted);margin-top:12px">
+        To check manually: <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px">pip index versions ${name}</code>
+        or visit <a href="https://pypi.org/project/${name}/${version}/#files" target="_blank" style="color:var(--cg-purple)">PyPI release files</a>.
+      </div>`;
+  }
+
+  // ── Files tab ──────────────────────────────────────────────────────────────
+  const files = data.pypi?.release_files || [];
+
+  // Build a lookup of filename → provenance status from Chainguard results
+  const cgProvenanceByFile = {};
+  if (isCG && data.chainguard_libraries?.provenance_results) {
+    for (const entry of data.chainguard_libraries.provenance_results) {
+      const d = entry.data || {};
+      if (d._auth_required) {
+        cgProvenanceByFile[entry.filename] = 'auth';
+      } else if (!d._fetch_error && !d.fetch_error) {
+        cgProvenanceByFile[entry.filename] = 'ok';
+      }
+    }
+  }
+
+  function fileAttestBadge(f) {
+    const isSdist = f.filename.endsWith('.tar.gz') || f.filename.endsWith('.zip');
+    if (isCG) {
+      const cgStatus = cgProvenanceByFile[f.filename];
+      if (cgStatus === 'ok')   return '<span class="file-attest-ok">✓ Chainguard SLSA L3</span>';
+      if (cgStatus === 'auth') return '<span class="file-attest-ok">✓ Chainguard (auth required)</span>';
+      // Source dists are upstream originals — Chainguard only attests wheels
+      if (isSdist) return '<span class="file-attest-none" title="Chainguard builds pre-compiled wheels from source — source tarballs are upstream PyPI originals and are not attested">Source dist — wheels only</span>';
+    }
+    if (f.has_attestation) return '<span class="file-attest-ok">✓ PEP 740 attested</span>';
+    return '<span class="file-attest-none">No attestation</span>';
+  }
+
+  document.getElementById('modal-file-list').innerHTML = files.length
+    ? files.map(f => `
+        <div class="file-row">
+          <span class="file-name"><a href="${f.url}" target="_blank" style="color:var(--cg-purple)">${f.filename}</a></span>
+          ${f.requires_python ? `<span style="color:var(--muted);font-size:.68rem">py${f.requires_python}</span>` : ''}
+          ${fileAttestBadge(f)}
+        </div>`).join('')
+    : '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">No file data available</div>';
+
+  // ── Raw JSON tab ───────────────────────────────────────────────────────────
+  document.getElementById('modal-raw-json').innerHTML = syntaxHighlight(data);
+
+  // Show content
+  document.getElementById('modal-loading').style.display = 'none';
+  document.getElementById('modal-content').style.display = 'block';
+}
+
+// Close on Escape key
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAttestModal(); });
+
+// Delegated click — open modal for any .prov-item with data-pkg-name
+document.addEventListener('click', e => {
+  const item = e.target.closest('.prov-item[data-pkg-name]');
+  if (item) openAttestModal(item.dataset.pkgName, item.dataset.pkgVer, item.dataset.pkgCard);
+});
+
+// ── Library provenance ───────────────────────────────────────────────────────
+function renderProvenanceItem(pkg, card) {
+  const isVerified = pkg.verified;
+  const cls = isVerified ? 'verified' : (pkg.provenance === 'unknown' ? 'unknown' : 'unverified');
+
+  const repoLink = pkg.repository
+    ? `<a href="${pkg.repository}" target="_blank" rel="noopener">${pkg.repository.replace(/^https?:\/\/(www\.)?/, '').slice(0, 50)}</a>`
+    : '<span style="color:var(--muted)">—</span>';
+
+  const statusIcon = isVerified
+    ? '<span class="prov-status ok">✓ Attested</span>'
+    : (pkg.provenance === 'unknown'
+        ? '<span class="prov-status grey">? Unknown</span>'
+        : '<span class="prov-status warn">⚠ Unattested</span>');
+
+  const installerCls = pkg.installer?.includes('Chainguard') ? 'apk' : 'pip';
+  const installerLabel = pkg.installer || 'pip';
+
+  // Extra badges for Chainguard Libraries packages
+  const slsaBadge  = pkg.slsa_level != null
+    ? `<span class="prov-badge verified" style="font-size:.65rem;padding:2px 7px">SLSA L${pkg.slsa_level}</span>` : '';
+  const sbomBadge   = pkg.sbom
+    ? `<span class="prov-badge verified" style="font-size:.65rem;padding:2px 7px">SBOM</span>` : '';
+  const sigBadge    = pkg.sigstore
+    ? `<span class="prov-badge verified" style="font-size:.65rem;padding:2px 7px">Sigstore</span>` : '';
+
+  // Escape for HTML attribute values (data-* attributes)
+  const eName = pkg.name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  const eVer  = pkg.version.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+
+  const eCard = (card || 'chainguard').replace(/[^a-z]/g, '');
+
+  return `
+    <div class="prov-item ${cls}" style="cursor:pointer" title="Click to view attestation details"
+         data-pkg-name="${eName}" data-pkg-ver="${eVer}" data-pkg-card="${eCard}">
+      <div class="prov-top">
+        <span class="prov-name">${pkg.name}</span>
+        <span class="prov-ver">${pkg.version}</span>
+        <span class="prov-installer ${installerCls}">${installerLabel}</span>
+        <span style="margin-left:auto;color:var(--muted);font-size:.65rem;flex-shrink:0">🔍 details</span>
+      </div>
+      <div class="prov-meta">
+        ${pkg.publisher ? `<span>By: ${pkg.publisher}</span>` : ''}
+        <span>Repo: ${repoLink}</span>
+        ${pkg.build_system ? `<span>Build: ${pkg.build_system}</span>` : ''}
+        ${statusIcon}
+        ${slsaBadge}${sbomBadge}${sigBadge}
+      </div>
+    </div>`;
+}
+
+function renderProvenanceSummary(summaryEl, listEl, packages, card) {
+  const verified   = packages.filter(p => p.verified).length;
+  const unverified = packages.length - verified;
+
+  summaryEl.innerHTML = `
+    <span class="prov-badge verified">✓ ${verified} verified</span>
+    <span class="prov-badge ${unverified > 0 ? 'unverified' : 'verified'}">
+      ${unverified > 0 ? '⚠' : '✓'} ${unverified} unverified
+    </span>`;
+
+  listEl.innerHTML = packages.length
+    ? packages.map(pkg => renderProvenanceItem(pkg, card)).join('')
+    : '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">No packages found</div>';
+}
+
+async function loadProvenance() {
+  try {
+    const resp = await fetch('/api/provenance');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+
+    // Upstream card: always PyPI provenance (constant across both demo deploys)
+    renderProvenanceSummary(
+      document.getElementById('up-prov-summary'),
+      document.getElementById('up-prov-list'),
+      data.upstream.packages,
+      'upstream'
+    );
+    // Chainguard card: real detected provenance — PyPI on first deploy,
+    // Chainguard Libraries (SLSA L3 / Sigstore / SBOM) on second deploy
+    renderProvenanceSummary(
+      document.getElementById('cg-prov-summary'),
+      document.getElementById('cg-prov-list'),
+      data.chainguard.packages,
+      'chainguard'
+    );
+  } catch (e) {
+    console.error('Provenance fetch failed:', e);
+    ['up-prov-list','cg-prov-list'].forEach(id => {
+      document.getElementById(id).innerHTML =
+        '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Provenance unavailable</div>';
+    });
+  }
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+loadData();
+loadProvenance();
+setInterval(() => loadData(), 5 * 60 * 1000);       // CVE refresh every 5 min
+setInterval(() => loadProvenance(), 5 * 60 * 1000); // provenance refresh every 5 min
+</script>
+</body>
+</html>

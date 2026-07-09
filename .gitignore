@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Terraform — state files contain account IDs, ARNs and resolved secrets
+terraform/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local env / credentials
+.env
+.env.*
+
+# Stray editor artifact
+ARG NEXUS_HOST=host.docker.internal

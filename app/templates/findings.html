@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CVE Report — {{ label }}</title>
+<style>
+  :root {
+    {% if theme == 'danger' %}
+    --accent: #ef4444;
+    --accent-dim: #7f1d1d;
+    --bg-grad: linear-gradient(160deg,#0f0505 0%,#1a0707 100%);
+    --icon: "⚠️";
+    {% else %}
+    --accent: #22c55e;
+    --accent-dim: #14532d;
+    --bg-grad: linear-gradient(160deg,#011a0e 0%,#022c22 100%);
+    --icon: "🛡️";
+    {% endif %}
+    --bg:       #0a0e1a;
+    --card:     #111827;
+    --border:   #1f2937;
+    --text:     #e5e7eb;
+    --muted:    #6b7280;
+    --critical: #ef4444;
+    --high:     #f97316;
+    --medium:   #eab308;
+    --low:      #3b82f6;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:'Segoe UI',system-ui,sans-serif;
+    background: var(--bg-grad);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px 16px 40px;
+  }
+
+  header {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--accent-dim);
+  }
+  .header-label {
+    font-size: .7rem; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .header-title { font-size: 1.4rem; font-weight: 800; }
+  .header-image {
+    font-size: .8rem; color: var(--muted); font-family: monospace;
+    background: rgba(255,255,255,.05); padding: 6px 10px; border-radius: 6px;
+    margin-top: 4px; word-break: break-all;
+  }
+
+  .stats-row {
+    display: grid; grid-template-columns: repeat(2,1fr); gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; text-align: center;
+  }
+  .stat-card.accent { border-color: var(--accent); }
+  .stat-number { font-size: 2.2rem; font-weight: 900; color: var(--accent); }
+  .stat-label  { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+  .sev-row {
+    display: grid; grid-template-columns: repeat(2,1fr); gap: 8px;
+    margin-bottom: 20px;
+  }
+  .sev-chip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; border-radius: 8px; border: 1px solid transparent;
+  }
+  .sev-chip.critical { background: rgba(239,68,68,.1);  border-color: rgba(239,68,68,.3); }
+  .sev-chip.high     { background: rgba(249,115,22,.1); border-color: rgba(249,115,22,.3); }
+  .sev-chip.medium   { background: rgba(234,179,8,.1);  border-color: rgba(234,179,8,.3); }
+  .sev-chip.low      { background: rgba(59,130,246,.1); border-color: rgba(59,130,246,.3); }
+  .sev-chip .name { font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+  .sev-chip .count{ font-size: 1.4rem; font-weight: 900; }
+  .sev-chip.critical .name,.sev-chip.critical .count { color: var(--critical); }
+  .sev-chip.high .name,.sev-chip.high .count         { color: var(--high); }
+  .sev-chip.medium .name,.sev-chip.medium .count     { color: var(--medium); }
+  .sev-chip.low .name,.sev-chip.low .count           { color: var(--low); }
+
+  .section-title {
+    font-size: .72rem; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 40px 20px; color: var(--muted);
+  }
+  .empty-icon { font-size: 3rem; margin-bottom: 12px; }
+  .empty-msg  { font-size: 1rem; font-weight: 600; color: var(--accent); }
+  .empty-sub  { font-size: .8rem; margin-top: 6px; }
+
+  /* CVE list */
+  .cve-list { display: flex; flex-direction: column; gap: 8px; }
+  .cve-item {
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; border-left: 3px solid transparent;
+  }
+  .cve-item.CRITICAL { border-left-color: var(--critical); }
+  .cve-item.HIGH     { border-left-color: var(--high); }
+  .cve-item.MEDIUM   { border-left-color: var(--medium); }
+  .cve-item.LOW      { border-left-color: var(--low); }
+
+  .cve-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+  .cve-id { font-weight: 700; font-family: monospace; font-size: .9rem; }
+  .cve-badge {
+    font-size: .62rem; font-weight: 700; letter-spacing: .5px;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
+  }
+  .cve-badge.CRITICAL { background: rgba(239,68,68,.2);  color: var(--critical); }
+  .cve-badge.HIGH     { background: rgba(249,115,22,.2); color: var(--high); }
+  .cve-badge.MEDIUM   { background: rgba(234,179,8,.2);  color: var(--medium); }
+  .cve-badge.LOW      { background: rgba(59,130,246,.2); color: var(--low); }
+
+  .cve-title   { font-size: .78rem; color: var(--muted); margin-bottom: 6px; line-height: 1.4; }
+  .cve-pkg     { font-size: .72rem; font-family: monospace; color: #a5b4fc; }
+  .cve-fix     { font-size: .7rem; color: var(--muted); }
+  .cve-fix span{ color: var(--accent); }
+  .cve-score   { font-size: .72rem; font-weight: 700; }
+
+  .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent); text-decoration: none; font-size: .82rem;
+    margin-bottom: 20px; padding: 8px 0;
+  }
+  .footer {
+    margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border);
+    font-size: .7rem; color: var(--muted); text-align: center;
+  }
+
+  {% if theme == 'safe' %}
+  .chainguard-note {
+    background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.2);
+    border-radius: 10px; padding: 16px; margin-bottom: 20px;
+    font-size: .82rem; line-height: 1.5;
+  }
+  .chainguard-note strong { color: var(--safe); }
+  {% endif %}
+</style>
+</head>
+<body>
+
+<a class="back-link" href="/">
+  ← Back to Dashboard
+</a>
+
+<header>
+  <div class="header-label">CVE Report · {{ image_type | title }}</div>
+  <div class="header-title">{{ label }}</div>
+  <div class="header-image">{{ repo }}</div>
+</header>
+
+{% if theme == 'safe' %}
+<div class="chainguard-note">
+  <strong>🛡️ Chainguard Enforce</strong><br>
+  Chainguard images are built from scratch using Wolfi — a purpose-built Linux distribution designed for minimal CVE exposure. Images are rebuilt daily, signed with Sigstore, and ship with a full SBOM.
+</div>
+{% endif %}
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card accent">
+    <div class="stat-number">{{ findings.total }}</div>
+    <div class="stat-label">Total CVEs</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-number" style="color:var(--muted)">{{ image_info.size_mb or '—' }}</div>
+    <div class="stat-label">Image Size (MB)</div>
+  </div>
+</div>
+
+<!-- Severity breakdown -->
+<div class="sev-row">
+  <div class="sev-chip critical">
+    <span class="name">Critical</span>
+    <span class="count">{{ findings.severity_counts.CRITICAL }}</span>
+  </div>
+  <div class="sev-chip high">
+    <span class="name">High</span>
+    <span class="count">{{ findings.severity_counts.HIGH }}</span>
+  </div>
+  <div class="sev-chip medium">
+    <span class="name">Medium</span>
+    <span class="count">{{ findings.severity_counts.MEDIUM }}</span>
+  </div>
+  <div class="sev-chip low">
+    <span class="name">Low</span>
+    <span class="count">{{ findings.severity_counts.LOW }}</span>
+  </div>
+</div>
+
+{% if findings.error %}
+<div style="background:rgba(239,68,68,.1);border:1px solid #7f1d1d;border-radius:8px;padding:12px;margin-bottom:16px;font-size:.8rem;color:#ef4444;">
+  ⚠ {{ findings.error }}
+</div>
+{% endif %}
+
+<!-- CVE list -->
+<div class="section-title">CVE Details</div>
+
+{% if findings.cve_list %}
+<div class="cve-list">
+  {% for cve in findings.cve_list %}
+  <div class="cve-item {{ cve.severity }}">
+    <div class="cve-header">
+      <span class="cve-id">{{ cve.id }}</span>
+      <span class="cve-badge {{ cve.severity }}">{{ cve.severity }}</span>
+    </div>
+    {% if cve.title %}
+    <div class="cve-title">{{ cve.title }}</div>
+    {% endif %}
+    {% if cve.packages %}
+    <div class="cve-pkg">{{ cve.packages | join(', ') }}</div>
+    {% endif %}
+    <div style="display:flex;justify-content:space-between;margin-top:6px">
+      {% if cve.fixed_in %}
+      <div class="cve-fix">Fix: <span>{{ cve.fixed_in | join(', ') }}</span></div>
+      {% endif %}
+      <div class="cve-score">Score: {{ cve.score }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">🛡️</div>
+  <div class="empty-msg">No CVEs found!</div>
+  <div class="empty-sub">This image is clean. Inspector found zero vulnerabilities.</div>
+</div>
+{% endif %}
+
+<div class="footer">
+  Last scanned: {{ findings.last_updated }} · Powered by AWS Inspector v2<br>
+  <a href="/" style="color:var(--accent);text-decoration:none">← Back to Showdown Dashboard</a>
+</div>
+
+</body>
+</html>

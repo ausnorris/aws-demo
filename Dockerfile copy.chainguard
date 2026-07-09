@@ -1,0 +1,37 @@
+# ── Stage 1: install dependencies ────────────────────────────────────────────
+# The -dev image has pip and build tools. We install everything into a
+# dedicated directory so it can be copied cleanly into the final image.
+FROM cgr.dev/chainguard-private/python:3.13-dev AS builder
+
+USER root
+
+WORKDIR /build
+
+COPY app/requirements.txt .
+
+RUN pip install --no-cache-dir --target=/install -r requirements.txt
+
+# ── Stage 2: lean runtime image ───────────────────────────────────────────────
+# The non-dev image has no pip, no shell, no compilers — just Python.
+# Inspector sees this layer and finds 0 CVEs.
+FROM cgr.dev/chainguard-private/python:3.13
+
+WORKDIR /home/nonroot
+
+# Copy installed packages from builder
+COPY --from=builder --chown=nonroot:nonroot /install ./packages
+
+# Copy application code
+COPY --chown=nonroot:nonroot app/ .
+
+EXPOSE 5000
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_ENV=production \
+    PYTHONPATH=/home/nonroot/packages
+
+USER nonroot
+
+ENTRYPOINT []
+CMD ["/usr/bin/python", "-m", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "30", "app:app"]

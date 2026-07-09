@@ -1,0 +1,21 @@
+FROM cgr.dev/chainguard-private/python:3.13-dev
+
+WORKDIR /home/nonroot
+
+USER root
+
+COPY --chown=nonroot:nonroot app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --chown=nonroot:nonroot app/ .
+
+EXPOSE 5000
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_ENV=production
+
+USER nonroot
+
+ENTRYPOINT []
+CMD ["/usr/bin/python", "-m", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "30", "app:app"]
