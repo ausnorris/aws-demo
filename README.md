@@ -221,10 +221,18 @@ All configuration is passed to ECS tasks as environment variables. To change the
 
 The dashboard's bottom panel shows **near misses** — packages that Chainguard
 Sentinel blocked at the Libraries index (malware, greyware, or cooldown policy)
-which your builds would otherwise have pulled from upstream. For each blocked
-library the app also checks whether Chainguard publishes a **CVE-remediated
-`+cgr.N` build** (queried from the `python-remediated` index using the same
-Libraries pull token) and shows it as the safe drop-in fix.
+which your builds would otherwise have pulled from upstream. Three sections:
+
+1. **Libraries this app uses (90 days)** — blocks cross-referenced against the
+   app's own installed packages, flagging when the installed version *is* the
+   blocked version
+2. **CVE-remediated builds for this app's libraries** — every installed
+   package checked against the `python-remediated` index; `+cgr.N` builds for
+   the exact installed version are highlighted as zero-upgrade drop-in fixes
+3. **All PyPI near misses (30 days)** — the ecosystem-wide view
+
+Remediated-index lookups use the same Libraries pull token as the provenance
+views; only the blocklist needs the console API token below.
 
 To enable live data:
 

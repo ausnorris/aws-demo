@@ -565,6 +565,68 @@ def api_sentinel():
     })
 
 
+@app.route("/api/remediated")
+def api_remediated():
+    """CVE-remediated (+cgr.N) builds Chainguard supplies for the libraries
+    THIS app has installed — regardless of whether they were ever blocked.
+
+    drop_in is true when a remediated build exists for the exact installed
+    version (e.g. installed 1.1.2 → 1.1.2+cgr.1), i.e. a zero-upgrade fix.
+    """
+    cached = _cache_get("remediated:app")
+    if cached:
+        return jsonify(cached)
+
+    installed = _installed_packages(limit=200)
+    creds_configured = bool(_CG_LIBRARIES_USER and _CG_LIBRARIES_TOKEN)
+
+    # Demo mode without Libraries credentials: fabricate one drop-in match and
+    # one other-version match so the section demos offline.
+    demo = {}
+    if not creds_configured:
+        by_name = {_norm_pkg(n): v for n, v in installed}
+        if "flask" in by_name:
+            demo["flask"] = {"available": True, "checked": True, "note": "demo",
+                             "versions": [f"{by_name['flask']}+cgr.1"],
+                             "latest": f"{by_name['flask']}+cgr.1"}
+        if "werkzeug" in by_name:
+            demo["werkzeug"] = {"available": True, "checked": True, "note": "demo",
+                                "versions": ["3.0.6+cgr.2"], "latest": "3.0.6+cgr.2"}
+
+    packages = []
+    checked = 0
+    for name, version in installed:
+        rem = demo.get(_norm_pkg(name)) or check_remediated_version(name)
+        if rem.get("checked"):
+            checked += 1
+        if not rem.get("available"):
+            continue
+        drop_ins = [v for v in rem.get("versions", [])
+                    if v.split("+")[0] == version]
+        packages.append({
+            "name": name,
+            "installed_version": version,
+            "versions": rem.get("versions", []),
+            "latest": rem.get("latest"),
+            "drop_in": bool(drop_ins),
+            "drop_in_version": drop_ins[-1] if drop_ins else None,
+        })
+
+    packages.sort(key=lambda p: (not p["drop_in"], p["name"].lower()))
+
+    payload = {
+        "packages": packages,
+        "available_count": len(packages),
+        "total_installed": len(installed),
+        "checked_count": checked,
+        "mode": "live" if creds_configured else "demo",
+        "index_url": f"{CG_REMEDIATED_INDEX}/simple/",
+        "fetched_at": datetime.utcnow().isoformat(),
+    }
+    _cache_set("remediated:app", payload)
+    return jsonify(payload)
+
+
 @app.route("/api/refresh")
 def api_refresh():
     """Force-clear the cache and return fresh data."""

@@ -291,6 +291,8 @@
   .nm-badge.malware  { background:rgba(239,68,68,.2);  color:var(--critical); }
   .nm-badge.greyware { background:rgba(249,115,22,.2); color:var(--high); }
   .nm-badge.cooldown { background:rgba(234,179,8,.2);  color:var(--medium); }
+  .nm-badge.remfix   { background:rgba(34,197,94,.15); color:var(--safe); text-transform:none; }
+  .nm-item.remfix    { border-left-color:var(--safe); }
   .nm-fix {
     display:inline-flex; align-items:center; gap:5px;
     font-size:.7rem; font-weight:600;
@@ -712,6 +714,10 @@
     <div class="nm-subhead" id="sentinel-app-head">📦 Libraries this app uses</div>
     <div class="ticker-list" id="sentinel-app-list" style="max-height:200px">
       <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:14px">Loading…</div>
+    </div>
+    <div class="nm-subhead" id="remediated-head">🔧 CVE-remediated builds Chainguard supplies for this app's libraries</div>
+    <div class="ticker-list" id="remediated-list" style="max-height:200px">
+      <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:14px">Checking remediated index…</div>
     </div>
     <div class="nm-subhead" id="sentinel-all-head">🌐 All PyPI near misses</div>
     <div class="ticker-list" id="sentinel-list" style="max-height:280px">
@@ -1552,13 +1558,64 @@ async function loadSentinel() {
   }
 }
 
+// ── CVE-remediated builds for this app's libraries ──────────────────────────
+function renderRemediatedItem(p) {
+  const detail = p.drop_in
+    ? `<span class="nm-fix yes">✓ drop-in fix for installed ${escapeHtml(p.installed_version)}: <code>${escapeHtml(p.drop_in_version)}</code></span>`
+    : `<span class="nm-fix no">remediated builds for other versions: ${(p.versions || []).map(escapeHtml).join(', ')}</span>`;
+  return `
+    <div class="nm-item remfix">
+      <div class="nm-top">
+        <span class="nm-badge remfix">+cgr.N</span>
+        <span class="nm-name">${escapeHtml(p.name)}</span>
+        <span class="nm-ver">installed: ${escapeHtml(p.installed_version)}</span>
+        <span class="nm-date">latest remediated: ${escapeHtml(p.latest || '—')}</span>
+      </div>
+      ${detail}
+    </div>`;
+}
+
+async function loadRemediated() {
+  const list = document.getElementById('remediated-list');
+  const head = document.getElementById('remediated-head');
+  try {
+    const resp = await fetch('/api/remediated');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+
+    head.textContent = `🔧 CVE-remediated builds Chainguard supplies for this app's libraries `
+      + `(${d.available_count} of ${d.total_installed} checked${d.mode === 'demo' ? ' · demo data' : ''})`;
+
+    if (d.packages.length) {
+      list.innerHTML = d.packages.map(renderRemediatedItem).join('')
+        + `<div style="font-size:.7rem;color:var(--muted);padding:4px 2px">
+             Served from <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px">${escapeHtml(d.index_url)}</code>
+             — pip resolves +cgr.N as a higher-precedence local version, so it's selected automatically.
+           </div>`;
+    } else if (d.checked_count === 0 && d.mode === 'live') {
+      list.innerHTML = '<div style="color:var(--muted);font-size:.78rem;text-align:center;padding:12px">Remediated index unreachable — check Libraries credentials</div>';
+    } else {
+      list.innerHTML = `
+        <div class="nm-clear">
+          <span>🛡️</span>
+          <span>No CVE-remediated builds published for this app's ${d.total_installed} libraries — none currently need one</span>
+        </div>`;
+    }
+  } catch (e) {
+    console.error('Remediated fetch failed:', e);
+    list.innerHTML = '<div style="color:var(--muted);font-size:.78rem;text-align:center;padding:12px">Remediated data unavailable</div>';
+  }
+}
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
 loadProvenance();
 loadSentinel();
+loadRemediated();
 setInterval(() => loadData(), 5 * 60 * 1000);       // CVE refresh every 5 min
 setInterval(() => loadProvenance(), 5 * 60 * 1000); // provenance refresh every 5 min
 setInterval(() => loadSentinel(), 5 * 60 * 1000);   // sentinel refresh every 5 min
+setInterval(() => loadRemediated(), 5 * 60 * 1000); // remediated refresh every 5 min
 </script>
 </body>
 </html>
