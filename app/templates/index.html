@@ -1175,9 +1175,19 @@ async function openAttestModal(name, version, card) {
       }
       if (d._fetch_error || d.fetch_error) {
         const msg = d._fetch_error || d.fetch_error;
+        // A 5xx here comes from the Chainguard integrity endpoint, not this
+        // app — don't present it as a dashboard failure.
+        if (/HTTP 5\d\d/.test(msg)) {
+          return `<div class="attest-banner warn" style="margin:6px 0 10px">
+            <span class="attest-banner-icon">⚠️</span>
+            <div><strong>Chainguard integrity endpoint unavailable (${escapeHtml(msg)})</strong><br>
+            Attestation lookup failed upstream — retry later or verify the
+            Libraries pull token is still valid.</div>
+          </div>`;
+        }
         return `<div class="attest-banner warn" style="margin:6px 0 10px">
           <span class="attest-banner-icon">⚠️</span>
-          <div>${msg}</div>
+          <div>${escapeHtml(msg)}</div>
         </div>`;
       }
 
