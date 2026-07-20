@@ -229,7 +229,7 @@ To enable live data:
 
 ```bash
 # 1. Store a console API token alongside the Libraries credentials
-export CG_API_TOKEN="$(chainctl auth token --audience console-api.enforce.dev)"
+export CG_API_TOKEN="$(chainctl auth token --audience=https://console-api.enforce.dev)"
 ./scripts/store-cg-credentials.sh
 
 # 2. Enable the panel and redeploy

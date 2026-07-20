@@ -61,7 +61,7 @@ vpc_id = "vpc-0abc1234def567890"
 # Shows packages blocked upstream by Sentinel malware/greyware detection, and
 # whether a CVE-remediated (+cgr.N) build exists. Requires a console API token
 # in SSM at <prefix>/cg-api-token:
-#   export CG_API_TOKEN="$(chainctl auth token --audience console-api.enforce.dev)"
+#   export CG_API_TOKEN="$(chainctl auth token --audience=https://console-api.enforce.dev)"
 #   ./scripts/store-cg-credentials.sh
 # When false (default) the panel shows clearly-labelled demo data.
 

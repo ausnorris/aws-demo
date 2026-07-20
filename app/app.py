@@ -36,7 +36,7 @@ _CG_LIBRARIES_USER  = os.environ.get("CG_LIBRARIES_USER",  "")
 _CG_LIBRARIES_TOKEN = os.environ.get("CG_LIBRARIES_TOKEN", "")
 
 # Chainguard Sentinel (malware blocklist) — console API Bearer token.
-# Obtain with:  chainctl auth token --audience console-api.enforce.dev
+# Obtain with:  chainctl auth token --audience=https://console-api.enforce.dev
 # Injected via ECS secrets from SSM, same as the Libraries credentials above.
 _CG_API_TOKEN        = os.environ.get("CHAINGUARD_API_TOKEN", "")
 CG_CONSOLE_API       = os.environ.get("CG_CONSOLE_API", "https://console-api.enforce.dev")

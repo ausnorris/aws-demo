@@ -18,7 +18,7 @@
 #   CG_API_TOKEN        – Chainguard console API token for the Sentinel
 #                         near-miss panel (enable_sentinel = true in tfvars).
 #                         Obtain with:
-#                           chainctl auth token --audience console-api.enforce.dev
+#                           chainctl auth token --audience=https://console-api.enforce.dev
 #   AWS_REGION          – defaults to ap-southeast-2
 #   PROJECT             – SSM path prefix project name, defaults to summit-demo
 #
