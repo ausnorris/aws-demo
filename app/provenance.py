@@ -35,10 +35,20 @@ _CHAINGUARD_INDEX_URL = "https://libraries.cgr.dev/python/simple/"
 _CHAINGUARD_INTEGRITY = "https://libraries.cgr.dev/python/integrity"
 
 
-def _using_chainguard_index() -> bool:
+def using_chainguard_index() -> bool:
     """True when packages were pulled from the Chainguard Libraries index
-    (either directly or through a corporate proxy / Nexus mirror)."""
-    return "pypi.org" not in _PIP_INDEX_URL and _PIP_INDEX_URL != ""
+    (either directly or through a corporate proxy / Nexus mirror).
+
+    Reads PIP_INDEX_URL live rather than the import-time snapshot so an ECS
+    env override (or its removal) is always reflected. An empty value counts
+    as PyPI — ECS may inject an empty override that masks the image ENV.
+    """
+    index = os.environ.get("PIP_INDEX_URL", _PIP_INDEX_URL)
+    return index != "" and "pypi.org" not in index
+
+
+# Backwards-compatible private alias
+_using_chainguard_index = using_chainguard_index
 
 
 log.info(

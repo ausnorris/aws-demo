@@ -14,7 +14,7 @@ import segno
 from botocore.exceptions import ClientError, NoCredentialsError
 from flask import Flask, jsonify, render_template, Response, request
 
-from provenance import get_provenance_both
+from provenance import get_provenance_both, using_chainguard_index
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -533,8 +533,7 @@ def api_provenance_detail(name: str, version: str):
     # ?card=upstream forces PyPI mode regardless of what index the container
     # was built with — upstream packages are always from PyPI.
     card = request.args.get("card", "chainguard")
-    runtime_cg = "pypi.org" not in os.environ.get("PIP_INDEX_URL", "https://pypi.org/simple/")
-    chainguard_mode = (card != "upstream") and runtime_cg
+    chainguard_mode = (card != "upstream") and using_chainguard_index()
 
     def _fetch(url, timeout=8, use_cg_auth=False):
         """Fetch JSON from url.  Never include credentials in return values."""

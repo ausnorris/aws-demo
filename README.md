@@ -265,6 +265,20 @@ then force a new ECS deployment to pick it up.
 - In Terraform this is handled automatically; during local dev set it manually:
   `APP_URL=http://your-alb.amazonaws.com python app/app.py`
 
+### Chainguard Libraries build not reflected in the UI
+The provenance panel decides between PyPI and Chainguard Libraries mode from
+the `PIP_INDEX_URL` the container sees at runtime:
+- The Chainguard Dockerfile bakes `ENV PIP_INDEX_URL=http://<nexus>:8081/...`
+  into the image, and the ECS task definition must NOT override it with an
+  empty value. If you deployed with an older task definition that always set
+  `PIP_INDEX_URL`, run `terraform apply` to pick up the fixed definition.
+- Verify what the running task actually sees:
+  `aws ecs execute-command` isn't enabled here, so check instead with
+  `curl http://<alb>/api/provenance | jq .mode` — it should say
+  `chainguard_libraries`.
+- After rebuilding the image, force a fresh deployment so ECS pulls the new
+  digest: `aws ecs update-service --cluster summit-demo --service summit-demo-dashboard --force-new-deployment`
+
 ### Chainguard image build fails
 - Ensure Docker has access to `cgr.dev` (outbound internet access)
 - Chainguard's public images are free — no authentication needed for `latest` tags

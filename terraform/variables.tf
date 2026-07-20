@@ -120,8 +120,10 @@ variable "enable_inspector" {
 variable "nexus_host" {
   description = <<-EOT
     Hostname or IP of the Nexus server serving Chainguard Python packages.
-    Leave empty (default) when deploying with standard PyPI packages.
-    When set, the dashboard provenance view marks all packages as Chainguard-verified.
+    Leave empty (default) to let the app auto-detect the index from the
+    PIP_INDEX_URL that was baked into the image at build time — the normal
+    case when the Dockerfile already sets NEXUS_HOST/PIP_INDEX_URL.
+    Set it only to force-override the runtime index detection.
   EOT
   type    = string
   default = ""

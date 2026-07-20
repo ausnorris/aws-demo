@@ -44,24 +44,30 @@ resource "aws_ecs_task_definition" "dashboard" {
         protocol      = "tcp"
       }]
 
-      environment = [
-        { name = "AWS_REGION",             value = var.aws_region },
-        { name = "UPSTREAM_REPO",          value = local.upstream_repo_name },
-        { name = "CHAINGUARD_REPO",        value = local.chainguard_repo_name },
-        { name = "UPSTREAM_IMAGE_TAG",     value = var.upstream_image_tag },
-        { name = "CHAINGUARD_IMAGE_TAG",   value = var.chainguard_image_tag },
-        { name = "UPSTREAM_IMAGE_LABEL",   value = var.upstream_image_label },
-        { name = "CHAINGUARD_IMAGE_LABEL", value = var.chainguard_image_label },
-        { name = "APP_URL",                value = "http://${aws_lb.main.dns_name}" },
-        { name = "CACHE_TTL_SECONDS",      value = tostring(var.cache_ttl_seconds) },
-        { name = "PORT",                   value = "5000" },
-        # Nexus/Chainguard index — empty string means standard PyPI was used.
-        # Set nexus_host in tfvars when deploying the Chainguard-libraries build.
-        { name = "NEXUS_HOST",             value = var.nexus_host },
-        { name = "PIP_INDEX_URL",          value = var.nexus_host != "" ? "http://${var.nexus_host}:8081/repository/${var.nexus_repo}/simple/" : "" },
-        # Sentinel near-miss panel lookback window
-        { name = "SENTINEL_SINCE_DAYS",    value = tostring(var.sentinel_since_days) },
-      ]
+      environment = concat(
+        [
+          { name = "AWS_REGION",             value = var.aws_region },
+          { name = "UPSTREAM_REPO",          value = local.upstream_repo_name },
+          { name = "CHAINGUARD_REPO",        value = local.chainguard_repo_name },
+          { name = "UPSTREAM_IMAGE_TAG",     value = var.upstream_image_tag },
+          { name = "CHAINGUARD_IMAGE_TAG",   value = var.chainguard_image_tag },
+          { name = "UPSTREAM_IMAGE_LABEL",   value = var.upstream_image_label },
+          { name = "CHAINGUARD_IMAGE_LABEL", value = var.chainguard_image_label },
+          { name = "APP_URL",                value = "http://${aws_lb.main.dns_name}" },
+          { name = "CACHE_TTL_SECONDS",      value = tostring(var.cache_ttl_seconds) },
+          { name = "PORT",                   value = "5000" },
+          # Sentinel near-miss panel lookback window
+          { name = "SENTINEL_SINCE_DAYS",    value = tostring(var.sentinel_since_days) },
+        ],
+        # Only override the image's baked-in PIP_INDEX_URL when nexus_host is
+        # explicitly set. An unconditional entry (even an empty one) masks the
+        # ENV the Dockerfile wrote at build time, which is what the app uses to
+        # detect that it was built from the Chainguard Libraries index.
+        var.nexus_host != "" ? [
+          { name = "NEXUS_HOST",    value = var.nexus_host },
+          { name = "PIP_INDEX_URL", value = "http://${var.nexus_host}:8081/repository/${var.nexus_repo}/simple/" },
+        ] : []
+      )
 
       # Chainguard Libraries credentials — injected from SSM SecureString.
       # Values are never stored in Terraform state as plaintext.
