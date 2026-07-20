@@ -37,6 +37,7 @@ resource "aws_iam_policy" "ecs_execution_ssm" {
       Resource = [
         "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-user",
         "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-token",
+        "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-api-token",
       ]
     }]
   })

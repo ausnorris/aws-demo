@@ -271,6 +271,42 @@
   .prov-status.warn{ color:var(--high); }
   .prov-status.grey{ color:var(--muted); }
 
+  /* ── Sentinel near misses ────────────────────────────────── */
+  .nm-item {
+    display:flex; flex-direction:column; gap:4px;
+    background:rgba(255,255,255,.03); border-radius:6px;
+    padding:8px 10px; font-size:.75rem; animation:fadeIn .4s ease;
+    border-left:3px solid var(--danger);
+  }
+  .nm-item.cooldown { border-left-color:var(--medium); }
+  .nm-item.greyware { border-left-color:var(--high); }
+  .nm-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .nm-name { font-weight:700; font-family:monospace; color:var(--text); }
+  .nm-ver  { color:var(--muted); font-family:monospace; font-size:.7rem; }
+  .nm-date { margin-left:auto; color:var(--muted); font-size:.68rem; flex-shrink:0; }
+  .nm-badge {
+    font-weight:700; font-size:.62rem; letter-spacing:.5px; text-transform:uppercase;
+    padding:2px 7px; border-radius:4px; flex-shrink:0;
+  }
+  .nm-badge.malware  { background:rgba(239,68,68,.2);  color:var(--critical); }
+  .nm-badge.greyware { background:rgba(249,115,22,.2); color:var(--high); }
+  .nm-badge.cooldown { background:rgba(234,179,8,.2);  color:var(--medium); }
+  .nm-fix {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:.7rem; font-weight:600;
+  }
+  .nm-fix.yes { color:var(--safe); }
+  .nm-fix.no  { color:var(--muted); }
+  .nm-fix code {
+    background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.25);
+    padding:1px 6px; border-radius:4px; font-family:monospace; font-size:.68rem;
+  }
+  .nm-demo-note {
+    margin-top:10px; font-size:.7rem; color:var(--medium);
+    background:rgba(234,179,8,.08); border:1px solid rgba(234,179,8,.25);
+    border-radius:6px; padding:6px 10px;
+  }
+
   /* ── Attestation modal ───────────────────────────────────── */
   #attest-modal-backdrop {
     display:none; position:fixed; inset:0; z-index:500;
@@ -645,6 +681,26 @@
       <div class="ticker-list" id="cg-prov-list">
         <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Sentinel near misses ─────────────────────────────────────────── -->
+  <div class="panel" id="sentinel-panel">
+    <div class="panel-title" style="color:var(--aws-orange)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="4" y1="4" x2="20" y2="20"/></svg>
+      Near Misses — Blocked by Chainguard Sentinel
+      <span id="sentinel-window" style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0"></span>
+    </div>
+    <div class="prov-summary" id="sentinel-summary"></div>
+    <div class="ticker-list" id="sentinel-list" style="max-height:280px">
+      <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
+    </div>
+    <div id="sentinel-note" style="display:none"></div>
+    <div style="margin-top:10px;font-size:.78rem;color:var(--muted);line-height:1.5">
+      Packages your builds <em>would have pulled</em> from upstream, blocked at the
+      Chainguard Libraries index by malware / greyware detection and cooldown policy.
+      Where Chainguard publishes a CVE-remediated <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px">+cgr.N</code>
+      build, it is shown as the safe drop-in fix.
     </div>
   </div>
 </main>
@@ -1345,11 +1401,87 @@ async function loadProvenance() {
   }
 }
 
+// ── Sentinel near misses ─────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderSentinelItem(e) {
+  const reason = ['malware','greyware','cooldown'].includes(e.reason) ? e.reason : 'malware';
+  const versions = (e.versions || []).map(escapeHtml).join(', ');
+  const rem = e.remediated || {};
+
+  let fix;
+  if (rem.available) {
+    fix = `<span class="nm-fix yes">✓ CVE-remediated build available: <code>${escapeHtml(rem.latest || rem.versions?.slice(-1)[0] || '')}</code></span>`;
+  } else if (rem.checked) {
+    fix = `<span class="nm-fix no">— No remediated build (avoid this package)</span>`;
+  } else {
+    fix = `<span class="nm-fix no">? Remediation status unknown${rem.note ? ' · ' + escapeHtml(rem.note) : ''}</span>`;
+  }
+
+  return `
+    <div class="nm-item ${reason}">
+      <div class="nm-top">
+        <span class="nm-badge ${reason}">${reason}</span>
+        <span class="nm-name">${escapeHtml(e.name)}</span>
+        ${versions ? `<span class="nm-ver">${versions}</span>` : ''}
+        ${e.source ? `<span class="nm-ver">${escapeHtml(e.source)}</span>` : ''}
+        <span class="nm-date">blocked ${escapeHtml(e.blocked_at || '—')}</span>
+      </div>
+      ${fix}
+    </div>`;
+}
+
+async function loadSentinel() {
+  const list = document.getElementById('sentinel-list');
+  const summary = document.getElementById('sentinel-summary');
+  const note = document.getElementById('sentinel-note');
+  try {
+    const resp = await fetch('/api/sentinel');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+
+    document.getElementById('sentinel-window').textContent =
+      `${d.ecosystem} · last ${d.since_days} days`;
+
+    summary.innerHTML = `
+      <span class="prov-badge unverified">⛔ ${d.total} package${d.total === 1 ? '' : 's'} blocked</span>
+      <span class="prov-badge ${d.remediated_available > 0 ? 'verified' : 'unknown'}">
+        ${d.remediated_available > 0 ? '✓' : '—'} ${d.remediated_available} with CVE-remediated builds
+      </span>`;
+
+    list.innerHTML = d.blocked.length
+      ? d.blocked.map(renderSentinelItem).join('')
+      : `<div style="color:var(--safe);font-size:.85rem;text-align:center;padding:24px">
+           <div style="font-size:2rem;margin-bottom:8px">🛡️</div>
+           No packages blocked in this window
+         </div>`;
+
+    if (d.mode === 'demo') {
+      note.className = 'nm-demo-note';
+      note.style.display = 'block';
+      note.textContent = '⚠ Demo data — ' + (d.error || 'CHAINGUARD_API_TOKEN not configured');
+    } else if (d.error) {
+      note.className = 'nm-demo-note';
+      note.style.display = 'block';
+      note.textContent = '⚠ ' + d.error;
+    } else {
+      note.style.display = 'none';
+    }
+  } catch (e) {
+    console.error('Sentinel fetch failed:', e);
+    list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Sentinel data unavailable</div>';
+  }
+}
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
 loadProvenance();
+loadSentinel();
 setInterval(() => loadData(), 5 * 60 * 1000);       // CVE refresh every 5 min
 setInterval(() => loadProvenance(), 5 * 60 * 1000); // provenance refresh every 5 min
+setInterval(() => loadSentinel(), 5 * 60 * 1000);   // sentinel refresh every 5 min
 </script>
 </body>
 </html>

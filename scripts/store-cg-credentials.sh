@@ -15,6 +15,10 @@
 #   CG_LIBRARIES_TOKEN  – pull token password (JWT)
 #
 # Optional env vars:
+#   CG_API_TOKEN        – Chainguard console API token for the Sentinel
+#                         near-miss panel (enable_sentinel = true in tfvars).
+#                         Obtain with:
+#                           chainctl auth token --audience console-api.enforce.dev
 #   AWS_REGION          – defaults to ap-southeast-2
 #   PROJECT             – SSM path prefix project name, defaults to summit-demo
 #
@@ -63,10 +67,29 @@ aws ssm put-parameter \
   --description "Chainguard Libraries pull token JWT (summit-demo)" \
   --no-cli-pager
 
+# Sentinel console API token — optional, only needed for the near-miss panel.
+if [[ -n "${CG_API_TOKEN:-}" ]]; then
+  aws ssm put-parameter \
+    --region "${REGION}" \
+    --name   "${PREFIX}/cg-api-token" \
+    --value  "${CG_API_TOKEN}" \
+    --type   "SecureString" \
+    --overwrite \
+    --description "Chainguard console API token for Sentinel blocklist (summit-demo)" \
+    --no-cli-pager
+fi
+
 echo ""
 echo "✓ Credentials stored:"
 echo "  ${PREFIX}/cg-libraries-user"
 echo "  ${PREFIX}/cg-libraries-token"
+if [[ -n "${CG_API_TOKEN:-}" ]]; then
+  echo "  ${PREFIX}/cg-api-token"
+else
+  echo ""
+  echo "  (CG_API_TOKEN not set — skipped ${PREFIX}/cg-api-token."
+  echo "   The Sentinel near-miss panel needs it when enable_sentinel = true.)"
+fi
 echo ""
 echo "Verify (value will be shown — only run in a secure terminal):"
 echo "  aws ssm get-parameter --region ${REGION} --name ${PREFIX}/cg-libraries-user --with-decryption --query Parameter.Value --output text"

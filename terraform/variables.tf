@@ -138,6 +138,25 @@ variable "nexus_repo" {
 # scripts/store-cg-credentials.sh before the first terraform apply.
 # Terraform reads them by path at deploy time; values never appear in state.
 
+# ── Chainguard Sentinel near misses ──────────────────────────────────────────
+
+variable "enable_sentinel" {
+  description = <<-EOT
+    Enable the "Near Misses" dashboard panel backed by the Chainguard Sentinel
+    malware blocklist API. Requires a console API token stored in SSM at
+    <prefix>/cg-api-token (run scripts/store-cg-credentials.sh with
+    CG_API_TOKEN set). When false, the panel shows clearly-labelled demo data.
+  EOT
+  type    = bool
+  default = false
+}
+
+variable "sentinel_since_days" {
+  description = "How many days back the Sentinel near-miss panel looks for blocked packages"
+  type        = number
+  default     = 30
+}
+
 variable "cg_libraries_ssm_prefix" {
   description = <<-EOT
     SSM parameter path prefix for Chainguard Libraries credentials.

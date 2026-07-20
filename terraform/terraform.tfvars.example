@@ -57,6 +57,17 @@ vpc_id = "vpc-0abc1234def567890"
 # nexus_host = ""
 # nexus_repo = "python-group"
 
+# ── Chainguard Sentinel near misses (optional) ────────────────────────────────
+# Shows packages blocked upstream by Sentinel malware/greyware detection, and
+# whether a CVE-remediated (+cgr.N) build exists. Requires a console API token
+# in SSM at <prefix>/cg-api-token:
+#   export CG_API_TOKEN="$(chainctl auth token --audience console-api.enforce.dev)"
+#   ./scripts/store-cg-credentials.sh
+# When false (default) the panel shows clearly-labelled demo data.
+
+# enable_sentinel     = false
+# sentinel_since_days = 30
+
 # ── Chainguard Libraries credentials ──────────────────────────────────────────
 # Credentials live in SSM Parameter Store, NOT in this file. Store them by
 # running scripts/store-cg-credentials.sh before the first terraform apply.

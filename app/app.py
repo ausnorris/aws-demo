@@ -35,6 +35,18 @@ CACHE_TTL_SECONDS    = int(os.environ.get("CACHE_TTL_SECONDS", "300"))
 _CG_LIBRARIES_USER  = os.environ.get("CG_LIBRARIES_USER",  "")
 _CG_LIBRARIES_TOKEN = os.environ.get("CG_LIBRARIES_TOKEN", "")
 
+# Chainguard Sentinel (malware blocklist) — console API Bearer token.
+# Obtain with:  chainctl auth token --audience console-api.enforce.dev
+# Injected via ECS secrets from SSM, same as the Libraries credentials above.
+_CG_API_TOKEN        = os.environ.get("CHAINGUARD_API_TOKEN", "")
+CG_CONSOLE_API       = os.environ.get("CG_CONSOLE_API", "https://console-api.enforce.dev")
+# CVE-remediated builds live in a separate PEP 503/691 index. Checked with the
+# existing CG_LIBRARIES_USER / CG_LIBRARIES_TOKEN pull-token (basic auth).
+CG_REMEDIATED_INDEX  = os.environ.get("CG_REMEDIATED_INDEX", "https://libraries.cgr.dev/python-remediated")
+SENTINEL_ECOSYSTEM   = os.environ.get("SENTINEL_ECOSYSTEM", "PYPI")
+SENTINEL_SINCE_DAYS  = int(os.environ.get("SENTINEL_SINCE_DAYS", "30"))
+SENTINEL_PAGE_SIZE   = int(os.environ.get("SENTINEL_PAGE_SIZE", "25"))
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -253,6 +265,172 @@ def fetch_inspector_findings(repo_name: str, image_tag: str = "latest") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Chainguard Sentinel — malware blocklist "near misses"
+# ---------------------------------------------------------------------------
+
+def _http_get_json(url: str, headers: dict | None = None, timeout: int = 10):
+    """GET url and parse JSON. Returns (data, error). Never raises."""
+    import json as _json
+    import urllib.request, urllib.error
+
+    req_headers = {"User-Agent": "chainguard-summit-demo/1.0"}
+    if headers:
+        req_headers.update(headers)
+    try:
+        req = urllib.request.Request(url, headers=req_headers)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return _json.loads(r.read()), None
+    except urllib.error.HTTPError as exc:
+        return None, f"HTTP {exc.code}: {exc.reason}"
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _normalise_block_entry(raw: dict) -> dict:
+    """Map a blocklist API entry to the fields the UI needs.
+
+    Field names are matched loosely so minor API shape changes don't break
+    the panel — unknown fields are simply dropped.
+    """
+    name = (raw.get("name") or raw.get("package") or raw.get("packageName")
+            or raw.get("package_name") or "")
+    version = (raw.get("version") or raw.get("packageVersion")
+               or raw.get("package_version") or "")
+    versions = raw.get("versions") or ([version] if version else [])
+    if isinstance(versions, str):
+        versions = [versions]
+    blocked_at = (raw.get("blockedAt") or raw.get("blocked_at")
+                  or raw.get("createdAt") or raw.get("created_at")
+                  or raw.get("detectedAt") or raw.get("detected_at") or "")
+    reason = (raw.get("reason") or raw.get("classification")
+              or raw.get("type") or raw.get("category") or "malware")
+    source = (raw.get("source") or raw.get("advisory")
+              or raw.get("osvId") or raw.get("osv_id") or "")
+    return {
+        "name": name,
+        "versions": [str(v) for v in versions][:5],
+        "ecosystem": raw.get("ecosystem", SENTINEL_ECOSYSTEM),
+        "blocked_at": str(blocked_at)[:10],
+        "reason": str(reason).lower(),
+        "source": source,
+    }
+
+
+def check_remediated_version(name: str) -> dict:
+    """Check whether Chainguard publishes a CVE-remediated build of a package.
+
+    Queries the python-remediated PEP 691 simple index for the package and
+    looks for +cgr.N local versions. Uses the Libraries pull token (basic
+    auth). 404 → no remediated build exists.
+    """
+    cache_key = f"remediated:{name.lower()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = {"available": False, "versions": [], "checked": False, "note": ""}
+
+    if not (_CG_LIBRARIES_USER and _CG_LIBRARIES_TOKEN):
+        result["note"] = "Libraries credentials not configured"
+        _cache_set(cache_key, result)
+        return result
+
+    import base64
+    auth = base64.b64encode(
+        f"{_CG_LIBRARIES_USER}:{_CG_LIBRARIES_TOKEN}".encode()
+    ).decode()
+    url = f"{CG_REMEDIATED_INDEX}/simple/{name.lower()}/"
+    data, err = _http_get_json(url, headers={
+        "Accept": "application/vnd.pypi.simple.v1+json",
+        "Authorization": f"Basic {auth}",
+    })
+
+    result["checked"] = True
+    if err:
+        if "404" in err:
+            result["note"] = "No remediated build published"
+        else:
+            result["checked"] = False
+            result["note"] = err
+    else:
+        cgr_versions = [v for v in data.get("versions", []) if "+cgr." in v]
+        # Highest version last under a naive numeric sort — good enough for
+        # display; exact PEP 440 ordering isn't needed here.
+        def _ver_key(v):
+            base = v.split("+")[0]
+            return tuple(int(p) if p.isdigit() else 0 for p in base.split("."))
+        cgr_versions.sort(key=_ver_key)
+        result["available"] = bool(cgr_versions)
+        result["versions"] = cgr_versions[-5:]
+        if cgr_versions:
+            result["latest"] = cgr_versions[-1]
+
+    _cache_set(cache_key, result)
+    return result
+
+
+def fetch_sentinel_blocklist() -> dict:
+    """Fetch recently blocked (malware/greyware) packages from Sentinel.
+
+    Returns {"blocked": [...], "since": iso, "mode": "live"|"demo", "error": ...}
+    Falls back to clearly-labelled demo data when no API token is configured,
+    mirroring the Inspector mock-mode behaviour.
+    """
+    cached = _cache_get("sentinel:blocklist")
+    if cached:
+        return cached
+
+    from datetime import timedelta
+    since = (datetime.utcnow() - timedelta(days=SENTINEL_SINCE_DAYS)).strftime(
+        "%Y-%m-%dT00:00:00Z")
+
+    if not _CG_API_TOKEN:
+        # Demo mode — representative typosquat/malware names, flagged as such.
+        demo = [
+            {"name": "requests-toolbelt3", "versions": ["1.0.1"], "blocked_at": "2026-07-14", "reason": "malware", "source": "MAL-2026-demo-1"},
+            {"name": "python-dotenv-utils", "versions": ["0.2.0"], "blocked_at": "2026-07-11", "reason": "malware", "source": "MAL-2026-demo-2"},
+            {"name": "flask", "versions": ["1.1.2"], "blocked_at": "2026-07-08", "reason": "cooldown", "source": ""},
+            {"name": "colorama-fix", "versions": ["0.4.9"], "blocked_at": "2026-07-05", "reason": "malware", "source": "MAL-2026-demo-3"},
+            {"name": "urllib4", "versions": ["2.0.0"], "blocked_at": "2026-07-02", "reason": "greyware", "source": ""},
+        ]
+        result = {
+            "blocked": [dict(e, ecosystem=SENTINEL_ECOSYSTEM) for e in demo],
+            "since": since,
+            "mode": "demo",
+            "error": "CHAINGUARD_API_TOKEN not configured — showing demo data",
+        }
+        _cache_set("sentinel:blocklist", result)
+        return result
+
+    url = (f"{CG_CONSOLE_API}/libraries/v1/malware/blocklist"
+           f"?ecosystem={SENTINEL_ECOSYSTEM}&since={since}"
+           f"&page_size={SENTINEL_PAGE_SIZE}")
+    data, err = _http_get_json(
+        url, headers={"Authorization": f"Bearer {_CG_API_TOKEN}"}, timeout=15)
+
+    if err:
+        log.error("Sentinel blocklist fetch failed: %s", err)
+        result = {"blocked": [], "since": since, "mode": "live", "error": err}
+        _cache_set("sentinel:blocklist", result)
+        return result
+
+    # The list may arrive under different keys depending on API version.
+    raw_items = None
+    for key in ("items", "blocklist", "packages", "entries", "results"):
+        if isinstance(data.get(key), list):
+            raw_items = data[key]
+            break
+    if raw_items is None:
+        raw_items = data if isinstance(data, list) else []
+
+    blocked = [e for e in (_normalise_block_entry(i) for i in raw_items)
+               if e["name"]]
+    result = {"blocked": blocked, "since": since, "mode": "live", "error": None}
+    _cache_set("sentinel:blocklist", result)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -284,6 +462,48 @@ def api_findings():
             "findings": chainguard_findings,
         },
         "region": AWS_REGION,
+        "fetched_at": datetime.utcnow().isoformat(),
+    })
+
+
+@app.route("/api/sentinel")
+def api_sentinel():
+    """Near misses: packages Chainguard Sentinel blocked upstream, and whether
+    a CVE-remediated (+cgr.N) build exists for each blocked library."""
+    data = fetch_sentinel_blocklist()
+
+    # In demo mode without Libraries credentials, fake one remediation result
+    # (flask 1.1.2 → 1.1.2+cgr.1 is Chainguard's documented example) so the
+    # panel demos the full near-miss → remediated-build story offline.
+    demo_remediation = (
+        {"flask": {"available": True, "checked": True,
+                   "versions": ["1.1.2+cgr.1"], "latest": "1.1.2+cgr.1",
+                   "note": "demo"}}
+        if data["mode"] == "demo" and not (_CG_LIBRARIES_USER and _CG_LIBRARIES_TOKEN)
+        else {}
+    )
+
+    enriched = []
+    seen: dict = {}
+    for entry in data["blocked"][:SENTINEL_PAGE_SIZE]:
+        name = entry["name"]
+        if name not in seen:
+            seen[name] = (demo_remediation.get(name)
+                          or check_remediated_version(name))
+        enriched.append({**entry, "remediated": seen[name]})
+
+    remediated_count = sum(
+        1 for e in enriched if e["remediated"].get("available"))
+
+    return jsonify({
+        "blocked": enriched,
+        "total": len(enriched),
+        "remediated_available": remediated_count,
+        "ecosystem": SENTINEL_ECOSYSTEM,
+        "since": data["since"],
+        "since_days": SENTINEL_SINCE_DAYS,
+        "mode": data["mode"],
+        "error": data["error"],
         "fetched_at": datetime.utcnow().isoformat(),
     })
 

@@ -59,20 +59,32 @@ resource "aws_ecs_task_definition" "dashboard" {
         # Set nexus_host in tfvars when deploying the Chainguard-libraries build.
         { name = "NEXUS_HOST",             value = var.nexus_host },
         { name = "PIP_INDEX_URL",          value = var.nexus_host != "" ? "http://${var.nexus_host}:8081/repository/${var.nexus_repo}/simple/" : "" },
+        # Sentinel near-miss panel lookback window
+        { name = "SENTINEL_SINCE_DAYS",    value = tostring(var.sentinel_since_days) },
       ]
 
       # Chainguard Libraries credentials — injected from SSM SecureString.
       # Values are never stored in Terraform state as plaintext.
-      secrets = [
-        {
-          name      = "CG_LIBRARIES_USER"
-          valueFrom = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-user"
-        },
-        {
-          name      = "CG_LIBRARIES_TOKEN"
-          valueFrom = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-token"
-        },
-      ]
+      # The Sentinel console API token is only injected when enable_sentinel
+      # is set — ECS fails task startup if a referenced parameter is missing.
+      secrets = concat(
+        [
+          {
+            name      = "CG_LIBRARIES_USER"
+            valueFrom = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-user"
+          },
+          {
+            name      = "CG_LIBRARIES_TOKEN"
+            valueFrom = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-libraries-token"
+          },
+        ],
+        var.enable_sentinel ? [
+          {
+            name      = "CHAINGUARD_API_TOKEN"
+            valueFrom = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter${local.ssm_prefix}/cg-api-token"
+          },
+        ] : []
+      )
 
       logConfiguration = {
         logDriver = "awslogs"

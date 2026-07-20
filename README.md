@@ -209,6 +209,38 @@ All configuration is passed to ECS tasks as environment variables. To change the
 | `APP_URL` | ALB DNS | Base URL used in QR code generation |
 | `CACHE_TTL_SECONDS` | `300` | Inspector API response cache duration |
 | `PORT` | `5000` | HTTP port the Flask app listens on |
+| `CHAINGUARD_API_TOKEN` | — (SSM secret) | Console API token for the Sentinel near-miss panel |
+| `SENTINEL_SINCE_DAYS` | `30` | Lookback window for the Sentinel near-miss panel |
+| `SENTINEL_ECOSYSTEM` | `PYPI` | Ecosystem queried on the Sentinel blocklist API |
+| `CG_REMEDIATED_INDEX` | `https://libraries.cgr.dev/python-remediated` | Index checked for CVE-remediated `+cgr.N` builds |
+
+---
+
+## Sentinel near misses panel
+
+The dashboard's bottom panel shows **near misses** — packages that Chainguard
+Sentinel blocked at the Libraries index (malware, greyware, or cooldown policy)
+which your builds would otherwise have pulled from upstream. For each blocked
+library the app also checks whether Chainguard publishes a **CVE-remediated
+`+cgr.N` build** (queried from the `python-remediated` index using the same
+Libraries pull token) and shows it as the safe drop-in fix.
+
+To enable live data:
+
+```bash
+# 1. Store a console API token alongside the Libraries credentials
+export CG_API_TOKEN="$(chainctl auth token --audience console-api.enforce.dev)"
+./scripts/store-cg-credentials.sh
+
+# 2. Enable the panel and redeploy
+echo 'enable_sentinel = true' >> terraform/terraform.tfvars
+terraform -chdir=terraform apply
+```
+
+Without a token the panel renders clearly-labelled demo data, so the layout is
+still demoable offline. Note that `chainctl auth token` returns a short-lived
+token — refresh the SSM parameter (re-run the script) before a demo session,
+then force a new ECS deployment to pick it up.
 
 ---
 
