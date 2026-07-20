@@ -1461,21 +1461,30 @@ async function loadSentinel() {
         ${d.remediated_available > 0 ? '✓' : '—'} ${d.remediated_available} with CVE-remediated builds
       </span>`;
 
-    list.innerHTML = d.blocked.length
-      ? d.blocked.map(renderSentinelItem).join('')
-      : `<div style="color:var(--safe);font-size:.85rem;text-align:center;padding:24px">
-           <div style="font-size:2rem;margin-bottom:8px">🛡️</div>
-           No packages blocked in this window
-         </div>`;
+    if (d.blocked.length) {
+      list.innerHTML = d.blocked.map(renderSentinelItem).join('');
+    } else if (d.error) {
+      // A failed live fetch must not render as a clean "nothing blocked".
+      const expiredHint = /HTTP (5\d\d|401|403)/.test(d.error)
+        ? '<br><span style="font-size:.72rem;opacity:.85">The stored CHAINGUARD_API_TOKEN is likely expired — refresh it in SSM (chainctl auth token) and force a new ECS deployment.</span>'
+        : '';
+      list.innerHTML = `
+        <div style="color:var(--high);font-size:.82rem;text-align:center;padding:24px;line-height:1.5">
+          <div style="font-size:1.6rem;margin-bottom:8px">⚠️</div>
+          Sentinel blocklist API error — ${escapeHtml(d.error)}${expiredHint}
+        </div>`;
+    } else {
+      list.innerHTML = `
+        <div style="color:var(--safe);font-size:.85rem;text-align:center;padding:24px">
+          <div style="font-size:2rem;margin-bottom:8px">🛡️</div>
+          No packages blocked in this window
+        </div>`;
+    }
 
     if (d.mode === 'demo') {
       note.className = 'nm-demo-note';
       note.style.display = 'block';
       note.textContent = '⚠ Demo data — ' + (d.error || 'CHAINGUARD_API_TOKEN not configured');
-    } else if (d.error) {
-      note.className = 'nm-demo-note';
-      note.style.display = 'block';
-      note.textContent = '⚠ ' + d.error;
     } else {
       note.style.display = 'none';
     }
