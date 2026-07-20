@@ -56,8 +56,9 @@ resource "aws_ecs_task_definition" "dashboard" {
           { name = "APP_URL",                value = "http://${aws_lb.main.dns_name}" },
           { name = "CACHE_TTL_SECONDS",      value = tostring(var.cache_ttl_seconds) },
           { name = "PORT",                   value = "5000" },
-          # Sentinel near-miss panel lookback window
-          { name = "SENTINEL_SINCE_DAYS",    value = tostring(var.sentinel_since_days) },
+          # Sentinel near-miss panel lookback windows
+          { name = "SENTINEL_SINCE_DAYS",     value = tostring(var.sentinel_since_days) },
+          { name = "SENTINEL_APP_SINCE_DAYS", value = tostring(var.sentinel_app_since_days) },
         ],
         # Only override the image's baked-in PIP_INDEX_URL when nexus_host is
         # explicitly set. An unconditional entry (even an empty one) masks the

@@ -306,6 +306,23 @@
     background:rgba(234,179,8,.08); border:1px solid rgba(234,179,8,.25);
     border-radius:6px; padding:6px 10px;
   }
+  .nm-subhead {
+    font-size:.68rem; font-weight:700; letter-spacing:1.2px; text-transform:uppercase;
+    color:var(--muted); margin:14px 0 8px; display:flex; align-items:center; gap:6px;
+  }
+  .nm-subhead:first-of-type { margin-top:4px; }
+  .nm-item.apphit {
+    border-left-color:var(--critical);
+    background:rgba(239,68,68,.07);
+  }
+  .nm-installed { font-size:.7rem; color:var(--muted); font-family:monospace; }
+  .nm-installed .hit { color:var(--critical); font-weight:700; }
+  .nm-installed .miss { color:var(--safe); }
+  .nm-clear {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(34,197,94,.06); border:1px solid rgba(34,197,94,.2);
+    border-radius:6px; padding:9px 12px; font-size:.78rem; color:var(--safe);
+  }
 
   /* ── Attestation modal ───────────────────────────────────── */
   #attest-modal-backdrop {
@@ -692,6 +709,11 @@
       <span id="sentinel-window" style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0"></span>
     </div>
     <div class="prov-summary" id="sentinel-summary"></div>
+    <div class="nm-subhead" id="sentinel-app-head">📦 Libraries this app uses</div>
+    <div class="ticker-list" id="sentinel-app-list" style="max-height:200px">
+      <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:14px">Loading…</div>
+    </div>
+    <div class="nm-subhead" id="sentinel-all-head">🌐 All PyPI near misses</div>
     <div class="ticker-list" id="sentinel-list" style="max-height:280px">
       <div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Loading…</div>
     </div>
@@ -699,6 +721,8 @@
     <div style="margin-top:10px;font-size:.78rem;color:var(--muted);line-height:1.5">
       Packages your builds <em>would have pulled</em> from upstream, blocked at the
       Chainguard Libraries index by malware / greyware detection and cooldown policy.
+      The first list cross-references blocks against the libraries <em>this app has
+      installed</em>; the second is the ecosystem-wide view.
       Where Chainguard publishes a CVE-remediated <code style="background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px">+cgr.N</code>
       build, it is shown as the safe drop-in fix.
     </div>
@@ -1420,6 +1444,7 @@ function renderSentinelItem(e) {
   const reason = ['malware','greyware','cooldown'].includes(e.reason) ? e.reason : 'malware';
   const versions = (e.versions || []).map(escapeHtml).join(', ');
   const rem = e.remediated || {};
+  const isAppMatch = 'installed_version' in e;
 
   let fix;
   if (rem.available) {
@@ -1430,21 +1455,32 @@ function renderSentinelItem(e) {
     fix = `<span class="nm-fix no">? Remediation status unknown${rem.note ? ' · ' + escapeHtml(rem.note) : ''}</span>`;
   }
 
+  // For app-dependency matches: show what THIS app has installed, and shout
+  // if the installed version is the blocked one.
+  let installedLine = '';
+  if (isAppMatch) {
+    installedLine = e.version_hit
+      ? `<span class="nm-installed"><span class="hit">⚠ installed version ${escapeHtml(e.installed_version)} IS the blocked version</span></span>`
+      : `<span class="nm-installed">installed here: ${escapeHtml(e.installed_version)} <span class="miss">✓ not the blocked version</span></span>`;
+  }
+
   return `
-    <div class="nm-item ${reason}">
+    <div class="nm-item ${reason}${isAppMatch && e.version_hit ? ' apphit' : ''}">
       <div class="nm-top">
         <span class="nm-badge ${reason}">${reason}</span>
         <span class="nm-name">${escapeHtml(e.name)}</span>
-        ${versions ? `<span class="nm-ver">${versions}</span>` : ''}
+        ${versions ? `<span class="nm-ver">blocked: ${versions}</span>` : ''}
         ${e.source ? `<span class="nm-ver">${escapeHtml(e.source)}</span>` : ''}
         <span class="nm-date">blocked ${escapeHtml(e.blocked_at || '—')}</span>
       </div>
+      ${installedLine}
       ${fix}
     </div>`;
 }
 
 async function loadSentinel() {
   const list = document.getElementById('sentinel-list');
+  const appList = document.getElementById('sentinel-app-list');
   const summary = document.getElementById('sentinel-summary');
   const note = document.getElementById('sentinel-note');
   try {
@@ -1452,14 +1488,35 @@ async function loadSentinel() {
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const d = await resp.json();
 
-    document.getElementById('sentinel-window').textContent =
-      `${d.ecosystem} · last ${d.since_days} days`;
+    document.getElementById('sentinel-window').textContent = d.ecosystem;
+    document.getElementById('sentinel-app-head').textContent =
+      `📦 Libraries this app uses — last ${d.app_since_days} days`;
+    document.getElementById('sentinel-all-head').textContent =
+      `🌐 All PyPI near misses — last ${d.since_days} days`;
 
+    const hits = (d.app_matches || []).filter(m => m.version_hit).length;
     summary.innerHTML = `
-      <span class="prov-badge unverified">⛔ ${d.total} package${d.total === 1 ? '' : 's'} blocked</span>
+      <span class="prov-badge ${d.app_total > 0 ? 'unverified' : 'verified'}">
+        ${d.app_total > 0 ? '⚠' : '✓'} ${d.app_total} affecting this app's libraries (${d.app_since_days}d)
+      </span>
+      ${hits > 0 ? `<span class="prov-badge unverified">⛔ ${hits} installed version${hits === 1 ? '' : 's'} blocked</span>` : ''}
+      <span class="prov-badge unverified">⛔ ${d.total} blocked ecosystem-wide (${d.since_days}d)</span>
       <span class="prov-badge ${d.remediated_available > 0 ? 'verified' : 'unknown'}">
         ${d.remediated_available > 0 ? '✓' : '—'} ${d.remediated_available} with CVE-remediated builds
       </span>`;
+
+    // App-dependency matches (90-day window)
+    if ((d.app_matches || []).length) {
+      appList.innerHTML = d.app_matches.map(renderSentinelItem).join('');
+    } else if (d.error) {
+      appList.innerHTML = '<div style="color:var(--muted);font-size:.78rem;text-align:center;padding:12px">—</div>';
+    } else {
+      appList.innerHTML = `
+        <div class="nm-clear">
+          <span>🛡️</span>
+          <span>None of the ${d.app_deps_count} libraries this app uses were blocked in the last ${d.app_since_days} days</span>
+        </div>`;
+    }
 
     if (d.blocked.length) {
       list.innerHTML = d.blocked.map(renderSentinelItem).join('');
@@ -1491,6 +1548,7 @@ async function loadSentinel() {
   } catch (e) {
     console.error('Sentinel fetch failed:', e);
     list.innerHTML = '<div style="color:var(--muted);font-size:.8rem;text-align:center;padding:20px">Sentinel data unavailable</div>';
+    appList.innerHTML = '<div style="color:var(--muted);font-size:.78rem;text-align:center;padding:12px">—</div>';
   }
 }
 

@@ -210,7 +210,8 @@ All configuration is passed to ECS tasks as environment variables. To change the
 | `CACHE_TTL_SECONDS` | `300` | Inspector API response cache duration |
 | `PORT` | `5000` | HTTP port the Flask app listens on |
 | `CHAINGUARD_API_TOKEN` | — (SSM secret) | Console API token for the Sentinel near-miss panel |
-| `SENTINEL_SINCE_DAYS` | `30` | Lookback window for the Sentinel near-miss panel |
+| `SENTINEL_SINCE_DAYS` | `30` | Lookback window for the ecosystem-wide near-miss list |
+| `SENTINEL_APP_SINCE_DAYS` | `90` | Lookback window when matching blocks against this app's installed libraries |
 | `SENTINEL_ECOSYSTEM` | `PYPI` | Ecosystem queried on the Sentinel blocklist API |
 | `CG_REMEDIATED_INDEX` | `https://libraries.cgr.dev/python-remediated` | Index checked for CVE-remediated `+cgr.N` builds |
 

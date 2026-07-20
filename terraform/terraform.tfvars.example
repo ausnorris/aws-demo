@@ -65,8 +65,9 @@ vpc_id = "vpc-0abc1234def567890"
 #   ./scripts/store-cg-credentials.sh
 # When false (default) the panel shows clearly-labelled demo data.
 
-# enable_sentinel     = false
-# sentinel_since_days = 30
+# enable_sentinel         = false
+# sentinel_since_days     = 30   # ecosystem-wide list window
+# sentinel_app_since_days = 90   # window for matching against this app's libraries
 
 # ── Chainguard Libraries credentials ──────────────────────────────────────────
 # Credentials live in SSM Parameter Store, NOT in this file. Store them by

@@ -154,9 +154,15 @@ variable "enable_sentinel" {
 }
 
 variable "sentinel_since_days" {
-  description = "How many days back the Sentinel near-miss panel looks for blocked packages"
+  description = "How many days back the Sentinel near-miss panel looks for blocked packages (ecosystem-wide list)"
   type        = number
   default     = 30
+}
+
+variable "sentinel_app_since_days" {
+  description = "Wider lookback window for matching Sentinel blocks against the app's own installed libraries"
+  type        = number
+  default     = 90
 }
 
 variable "cg_libraries_ssm_prefix" {

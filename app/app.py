@@ -14,7 +14,11 @@ import segno
 from botocore.exceptions import ClientError, NoCredentialsError
 from flask import Flask, jsonify, render_template, Response, request
 
-from provenance import get_provenance_both, using_chainguard_index
+from provenance import (
+    get_provenance_both,
+    using_chainguard_index,
+    _installed_packages,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -45,6 +49,8 @@ CG_CONSOLE_API       = os.environ.get("CG_CONSOLE_API", "https://console-api.enf
 CG_REMEDIATED_INDEX  = os.environ.get("CG_REMEDIATED_INDEX", "https://libraries.cgr.dev/python-remediated")
 SENTINEL_ECOSYSTEM   = os.environ.get("SENTINEL_ECOSYSTEM", "PYPI")
 SENTINEL_SINCE_DAYS  = int(os.environ.get("SENTINEL_SINCE_DAYS", "30"))
+# Longer window used when matching blocks against this app's own dependencies
+SENTINEL_APP_SINCE_DAYS = int(os.environ.get("SENTINEL_APP_SINCE_DAYS", "90"))
 SENTINEL_PAGE_SIZE   = int(os.environ.get("SENTINEL_PAGE_SIZE", "25"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -369,64 +375,82 @@ def check_remediated_version(name: str) -> dict:
     return result
 
 
-def fetch_sentinel_blocklist() -> dict:
-    """Fetch recently blocked (malware/greyware) packages from Sentinel.
+def _norm_pkg(name: str) -> str:
+    """PEP 503-style name normalisation so blocklist names match installed
+    distribution names regardless of -/_/. and case differences."""
+    return name.lower().replace("_", "-").replace(".", "-")
+
+
+def fetch_sentinel_blocklist(days: int, page_size: int | None = None) -> dict:
+    """Fetch packages blocked (malware/greyware) by Sentinel in the last `days`.
 
     Returns {"blocked": [...], "since": iso, "mode": "live"|"demo", "error": ...}
     Falls back to clearly-labelled demo data when no API token is configured,
     mirroring the Inspector mock-mode behaviour.
     """
-    cached = _cache_get("sentinel:blocklist")
+    page_size = page_size or SENTINEL_PAGE_SIZE
+    cache_key = f"sentinel:blocklist:{days}:{page_size}"
+    cached = _cache_get(cache_key)
     if cached:
         return cached
 
     from datetime import timedelta
-    since = (datetime.utcnow() - timedelta(days=SENTINEL_SINCE_DAYS)).strftime(
-        "%Y-%m-%dT00:00:00Z")
+    now = datetime.utcnow()
+    since = (now - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
 
     if not _CG_API_TOKEN:
         # Demo mode — representative typosquat/malware names, flagged as such.
+        # (name, versions, days_ago, reason, source); werkzeug sits outside the
+        # 30-day window so it only appears in the 90-day app-dependency view.
         demo = [
-            {"name": "requests-toolbelt3", "versions": ["1.0.1"], "blocked_at": "2026-07-14", "reason": "malware", "source": "MAL-2026-demo-1"},
-            {"name": "python-dotenv-utils", "versions": ["0.2.0"], "blocked_at": "2026-07-11", "reason": "malware", "source": "MAL-2026-demo-2"},
-            {"name": "flask", "versions": ["1.1.2"], "blocked_at": "2026-07-08", "reason": "cooldown", "source": ""},
-            {"name": "colorama-fix", "versions": ["0.4.9"], "blocked_at": "2026-07-05", "reason": "malware", "source": "MAL-2026-demo-3"},
-            {"name": "urllib4", "versions": ["2.0.0"], "blocked_at": "2026-07-02", "reason": "greyware", "source": ""},
+            ("requests-toolbelt3",  ["1.0.1"], 2,  "malware",  "MAL-2026-demo-1"),
+            ("python-dotenv-utils", ["0.2.0"], 6,  "malware",  "MAL-2026-demo-2"),
+            ("flask",               ["1.1.2"], 9,  "cooldown", ""),
+            ("colorama-fix",        ["0.4.9"], 12, "malware",  "MAL-2026-demo-3"),
+            ("urllib4",             ["2.0.0"], 26, "greyware", ""),
+            ("werkzeug",            ["3.0.1"], 55, "malware",  "MAL-2026-demo-4"),
         ]
         result = {
-            "blocked": [dict(e, ecosystem=SENTINEL_ECOSYSTEM) for e in demo],
+            "blocked": [
+                {"name": n, "versions": v, "ecosystem": SENTINEL_ECOSYSTEM,
+                 "blocked_at": (now - timedelta(days=ago)).strftime("%Y-%m-%d"),
+                 "reason": reason, "source": src}
+                for n, v, ago, reason, src in demo if ago <= days
+            ],
             "since": since,
             "mode": "demo",
             "error": "CHAINGUARD_API_TOKEN not configured — showing demo data",
         }
-        _cache_set("sentinel:blocklist", result)
+        _cache_set(cache_key, result)
         return result
 
     url = (f"{CG_CONSOLE_API}/libraries/v1/malware/blocklist"
            f"?ecosystem={SENTINEL_ECOSYSTEM}&since={since}"
-           f"&page_size={SENTINEL_PAGE_SIZE}")
+           f"&page_size={page_size}")
     data, err = _http_get_json(
         url, headers={"Authorization": f"Bearer {_CG_API_TOKEN}"}, timeout=15)
 
     if err:
         log.error("Sentinel blocklist fetch failed: %s", err)
         result = {"blocked": [], "since": since, "mode": "live", "error": err}
-        _cache_set("sentinel:blocklist", result)
+        _cache_set(cache_key, result)
         return result
 
     # The list may arrive under different keys depending on API version.
     raw_items = None
-    for key in ("items", "blocklist", "packages", "entries", "results"):
-        if isinstance(data.get(key), list):
-            raw_items = data[key]
-            break
+    if isinstance(data, dict):
+        for key in ("items", "blocklist", "packages", "entries", "results"):
+            if isinstance(data.get(key), list):
+                raw_items = data[key]
+                break
     if raw_items is None:
         raw_items = data if isinstance(data, list) else []
 
-    blocked = [e for e in (_normalise_block_entry(i) for i in raw_items)
+    blocked = [e for e in (_normalise_block_entry(i) for i in raw_items
+                           if isinstance(i, dict))
                if e["name"]]
     result = {"blocked": blocked, "since": since, "mode": "live", "error": None}
-    _cache_set("sentinel:blocklist", result)
+    _cache_set(cache_key, result)
     return result
 
 
@@ -469,8 +493,21 @@ def api_findings():
 @app.route("/api/sentinel")
 def api_sentinel():
     """Near misses: packages Chainguard Sentinel blocked upstream, and whether
-    a CVE-remediated (+cgr.N) build exists for each blocked library."""
-    data = fetch_sentinel_blocklist()
+    a CVE-remediated (+cgr.N) build exists for each blocked library.
+
+    Two views:
+      app_matches — blocks in the last SENTINEL_APP_SINCE_DAYS whose package
+                    name matches a library THIS app has installed, with the
+                    installed version flagged if it is the blocked version
+      blocked     — all ecosystem blocks in the last SENTINEL_SINCE_DAYS
+    """
+    general = fetch_sentinel_blocklist(SENTINEL_SINCE_DAYS)
+    # Wider window + bigger page for dependency matching — a match months back
+    # is still worth surfacing when it's a library we actually ship.
+    app_window = fetch_sentinel_blocklist(
+        SENTINEL_APP_SINCE_DAYS, page_size=max(SENTINEL_PAGE_SIZE, 100))
+
+    installed = {_norm_pkg(n): v for n, v in _installed_packages(limit=200)}
 
     # In demo mode without Libraries credentials, fake one remediation result
     # (flask 1.1.2 → 1.1.2+cgr.1 is Chainguard's documented example) so the
@@ -479,18 +516,34 @@ def api_sentinel():
         {"flask": {"available": True, "checked": True,
                    "versions": ["1.1.2+cgr.1"], "latest": "1.1.2+cgr.1",
                    "note": "demo"}}
-        if data["mode"] == "demo" and not (_CG_LIBRARIES_USER and _CG_LIBRARIES_TOKEN)
+        if general["mode"] == "demo" and not (_CG_LIBRARIES_USER and _CG_LIBRARIES_TOKEN)
         else {}
     )
 
-    enriched = []
     seen: dict = {}
-    for entry in data["blocked"][:SENTINEL_PAGE_SIZE]:
-        name = entry["name"]
-        if name not in seen:
-            seen[name] = (demo_remediation.get(name)
-                          or check_remediated_version(name))
-        enriched.append({**entry, "remediated": seen[name]})
+    def _remediation(name: str) -> dict:
+        key = _norm_pkg(name)
+        if key not in seen:
+            seen[key] = (demo_remediation.get(key)
+                         or check_remediated_version(name))
+        return seen[key]
+
+    app_matches = []
+    for entry in app_window["blocked"]:
+        installed_version = installed.get(_norm_pkg(entry["name"]))
+        if installed_version is None:
+            continue
+        app_matches.append({
+            **entry,
+            "remediated": _remediation(entry["name"]),
+            "installed_version": installed_version,
+            "version_hit": installed_version in entry["versions"],
+        })
+        if len(app_matches) >= 20:
+            break
+
+    enriched = [{**e, "remediated": _remediation(e["name"])}
+                for e in general["blocked"][:SENTINEL_PAGE_SIZE]]
 
     remediated_count = sum(
         1 for e in enriched if e["remediated"].get("available"))
@@ -498,12 +551,16 @@ def api_sentinel():
     return jsonify({
         "blocked": enriched,
         "total": len(enriched),
+        "app_matches": app_matches,
+        "app_total": len(app_matches),
+        "app_deps_count": len(installed),
+        "app_since_days": SENTINEL_APP_SINCE_DAYS,
         "remediated_available": remediated_count,
         "ecosystem": SENTINEL_ECOSYSTEM,
-        "since": data["since"],
+        "since": general["since"],
         "since_days": SENTINEL_SINCE_DAYS,
-        "mode": data["mode"],
-        "error": data["error"],
+        "mode": general["mode"],
+        "error": general["error"] or app_window["error"],
         "fetched_at": datetime.utcnow().isoformat(),
     })
 
